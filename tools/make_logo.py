@@ -1,4 +1,4 @@
-# Draws the Forever Codex logo: a bold gilded codex with a glowing infinity sign. Kept simple on purpose: it has to
+# Draws the Forever Companion logo: a bold gilded codex with a glowing infinity sign. Kept simple on purpose: it has to
 # read at 32 px on the minimap. Writes Media/drawn*.tga (the first, hand-drawn idea; the addon uses the logo made by make_addon_logo.py).
 # Usage: python tools/make_logo.py        (needs Pillow)
 import math, os

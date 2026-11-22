@@ -67,6 +67,7 @@ local function MakePage(cfg)
         local sel
         local sortIndex = 1
         local filter -- gathering: a single category, nil = all
+        local query = "" -- the search: the name of a source, or of something it drops
         local SORTS = { "recent", "kills", "value" }
         local SORT_LABEL = { recent = L["Recent"], kills = L["Count"], value = L["Value"] }
 
@@ -116,16 +117,39 @@ local function MakePage(cfg)
                 for _, e in ipairs(obj.entries or {}) do keys[#keys + 1] = e.key end
                 local route, info = ns.Spots.MakeRoute(keys, (filter and ns.CAT[filter].label or cfg.label) .. " · " .. GetZoneText())
                 if route then
-                    print("|cffffd100ForeverCodex:|r " .. L["Route created: %s"]:format(route.name))
+                    print("|cffffd100ForeverCompanion:|r " .. L["Route created: %s"]:format(route.name))
                     ns.UI.OpenEntry("routes", route.id)
                 else
-                    print("|cffffd100ForeverCodex:|r " .. info)
+                    print("|cffffd100ForeverCompanion:|r " .. info)
                 end
             end)
         end
 
-        obj.lv = UI.NewListView(left, LIST_W - 14, H - 44, 44)
-        obj.lv.frame:SetPoint("TOPLEFT", left, "TOPLEFT", 7, -38)
+        -- the search box: finds sources by their name and by what they drop
+        local box = W.NewPlate(left, C.inset)
+        box:SetSize(LIST_W - 16, 26)
+        box:SetPoint("TOPLEFT", 8, -38)
+        local edit = CreateFrame("EditBox", nil, box)
+        edit:SetPoint("TOPLEFT", 10, -3)
+        edit:SetPoint("BOTTOMRIGHT", -10, 3)
+        edit:SetFontObject("GameFontHighlight")
+        edit:SetAutoFocus(false)
+        edit:SetMaxLetters(40)
+        local hint = Label(box, "GameFontHighlightSmall", C.muted, "LEFT", 10, 0)
+        hint:SetText(L["Search sources and what they drop…"])
+        edit:SetScript("OnTextChanged", function(self)
+            query = self:GetText():lower()
+            hint:SetShown(query == "")
+            obj.lv:ScrollToTop()
+            UI.Dirty()
+        end)
+        edit:SetScript("OnEscapePressed", function(self) self:SetText(""); self:ClearFocus() end)
+        edit:SetScript("OnEnterPressed", function(self) self:ClearFocus() end)
+        edit:SetScript("OnEditFocusGained", function() box:SetBackdropBorderColor(unpack(C.gold)) end)
+        edit:SetScript("OnEditFocusLost", function() box:SetBackdropBorderColor(unpack(C.goldDim)) end)
+
+        obj.lv = UI.NewListView(left, LIST_W - 14, H - 72, 44)
+        obj.lv.frame:SetPoint("TOPLEFT", left, "TOPLEFT", 7, -68)
 
         -- right page: the selected entry ------------------------------------
         local right = W.NewPlate(frame, C.page)
@@ -170,7 +194,7 @@ local function MakePage(cfg)
             if not gm then return end
             local spot = ns.Spots.Nearest(gm)
             if not spot then
-                print("|cffffd100ForeverCodex:|r " .. L["No saved spots yet."])
+                print("|cffffd100ForeverCompanion:|r " .. L["No saved spots yet."])
                 return
             end
             ns.Routes.GoTo(gm.name or sel, spot, gm.zone)
@@ -180,10 +204,10 @@ local function MakePage(cfg)
             if not gm then return end
             local route, info = ns.Spots.MakeRoute({ sel }, (gm.name or sel) .. " · " .. GetZoneText())
             if route then
-                print("|cffffd100ForeverCodex:|r " .. L["Route created: %s"]:format(route.name))
+                print("|cffffd100ForeverCompanion:|r " .. L["Route created: %s"]:format(route.name))
                 ns.UI.OpenEntry("routes", route.id)
             else
-                print("|cffffd100ForeverCodex:|r " .. info)
+                print("|cffffd100ForeverCompanion:|r " .. info)
             end
         end)
 
@@ -233,7 +257,16 @@ local function MakePage(cfg)
             local list = {}
             local T = ns.Threshold()
             for key, gm in pairs(ns.db.mobs) do
-                if cfg.cats[gm.cat] and ns.CatOn(gm.cat) and (not filter or gm.cat == filter) then
+                -- the search: the name of the source, or something it drops (the first such item is told in the list)
+                local hit
+                if query ~= "" and not (gm.name or key):lower():find(query, 1, true) then
+                    for id, c in pairs(ns.MergedItems(gm)) do
+                        local gi = ns.db.items[id]
+                        local iname = gi and gi.link and gi.link:match("%[(.-)%]")
+                        if iname and iname:lower():find(query, 1, true) and (not hit or c > hit.c) then hit = { name = iname, c = c } end
+                    end
+                end
+                if cfg.cats[gm.cat] and ns.CatOn(gm.cat) and (not filter or gm.cat == filter) and (query == "" or hit or (gm.name or key):lower():find(query, 1, true)) then
                     local sm = ns.session.mobs[key]
                     local skinSm = gm.cat == "mob" and ns.session.mobs["skin:" .. (gm.name or "")]
                     local top = TopItem(gm.items)
@@ -246,6 +279,7 @@ local function MakePage(cfg)
                     else
                         sub = ns.CAT[gm.cat].label .. (gm.zone and (" · " .. gm.zone) or "")
                     end
+                    if hit then sub = L["What it drops"] .. ": " .. hit.name .. " ×" .. hit.c end
                     local itemSum = 0
                     if sm then for _, c in pairs(sm.items) do itemSum = itemSum + c end end
                     local icon = ns.SourceIcon(gm)
@@ -406,7 +440,7 @@ local function MakePage(cfg)
             ShowDetail(entries)
         end
 
-        function obj.SetSel(k) sel = k; filter = nil end
+        function obj.SetSel(k) sel = k; filter = nil; edit:SetText("") end
 
         return obj
     end })

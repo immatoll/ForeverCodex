@@ -467,16 +467,54 @@ local function ScanRecipes(kind)
 end
 
 -- auctions --------------------------------------------------------------------------------
+-- The history of the auctions: an auction that was in the list of a character and is not in it any more is noted (ns.db.ahHistory, the latest
+-- last) as sold, run out or cancelled. Cancelled is known from the game's message; run out when its time was up; otherwise it was sold.
+local cancelledIds = {}
+local HISTORY_MAX = 500
+local function PushHistory(entry)
+    if not ns.db then return end
+    local h = ns.db.ahHistory
+    if not h then h = {}; ns.db.ahHistory = h end
+    h[#h + 1] = entry
+    while #h > HISTORY_MAX do table.remove(h, 1) end
+end
+
+local function NoteEnded(rec, old, list)
+    local now = time()
+    local present, used = {}, {}
+    for _, a in ipairs(list) do if a.auctionID then present[a.auctionID] = true end end
+    for _, o in ipairs(old) do
+        local still = false
+        if o.auctionID then
+            still = present[o.auctionID] and true or false
+        else
+            for j, a in ipairs(list) do
+                if not used[j] and not a.auctionID and a.id == o.id and a.count == o.count and a.buyout == o.buyout then used[j] = true; still = true break end
+            end
+        end
+        if not still then
+            local state = "sold"
+            if o.auctionID and cancelledIds[o.auctionID] then state = "cancelled"
+            elseif o.left and o.left <= now + 90 then state = "expired" end
+            PushHistory({ id = o.id, count = o.count, buyout = o.buyout, char = rec.key, state = state, at = now })
+        end
+    end
+end
+
 local function ScanAuctions()
     local rec = Acc.Me()
     if not rec then return end
     local list = {}
+    local complete = true
     if C_AuctionHouse and C_AuctionHouse.GetNumOwnedAuctions and C_AuctionHouse.GetOwnedAuctionInfo then
+        local soldStatus = Enum and Enum.AuctionStatus and Enum.AuctionStatus.Sold
+        if C_AuctionHouse.HasFullOwnedAuctionResults then complete = C_AuctionHouse.HasFullOwnedAuctionResults() and true or false end
         for i = 1, C_AuctionHouse.GetNumOwnedAuctions() do
             local info = C_AuctionHouse.GetOwnedAuctionInfo(i)
             local id = info and info.itemKey and info.itemKey.itemID
-            if id then
-                list[#list + 1] = { id = id, count = info.quantity or 1, buyout = info.buyoutAmount or 0,
+            -- (a sold auction is not on offer any more: it falls out of the list and is noted as sold)
+            if id and not (soldStatus and info.status == soldStatus) then
+                list[#list + 1] = { id = id, count = info.quantity or 1, buyout = info.buyoutAmount or 0, auctionID = info.auctionID,
                     left = info.timeLeftSeconds and (time() + info.timeLeftSeconds) or nil }
             end
         end
@@ -495,6 +533,9 @@ local function ScanAuctions()
     else
         return
     end
+    -- what was in the list and is not any more (only when the game has sent all of it, and the auction house is open)
+    local old = rec.auctions and rec.auctions.list
+    if old and complete and ns.AH and ns.AH.IsOpen and ns.AH.IsOpen() then pcall(NoteEnded, rec, old, list) end
     rec.auctions = { list = list }
     Stamp(rec, "auctions")
 end
@@ -730,7 +771,7 @@ worker:SetScript("OnUpdate", function(_, dt)
     pending = {}
     for kind in pairs(work) do
         local ok, err = pcall(RUN[kind])
-        if not ok and ns.db and ns.db.debug then print("ForeverCodex account:", kind, err) end
+        if not ok and ns.db and ns.db.debug then print("ForeverCompanion account:", kind, err) end
     end
     if ns.AccountWindow and ns.AccountWindow.Dirty then ns.AccountWindow.Dirty() end
 end)
@@ -765,6 +806,7 @@ local HANDLE = {
     CRAFT_UPDATE = function() Queue("craft") end,
     AUCTION_OWNED_LIST_UPDATE = function() Queue("auctions") end,
     OWNED_AUCTIONS_UPDATED = function() Queue("auctions") end,
+    AUCTION_CANCELED = function(id) if id then cancelledIds[id] = true end end,
     TIME_PLAYED_MSG = function(total, level)
         local rec = Acc.Me()
         if rec then
@@ -798,7 +840,7 @@ end)
 
 -- /fc accdebug: what this client offers and what the scans did
 function Acc.Debug()
-    local function Say(t) print("|cffffd100ForeverCodex account:|r " .. t) end
+    local function Say(t) print("|cffffd100ForeverCompanion account:|r " .. t) end
     local function Raw(...) local t = {} for i = 1, select("#", ...) do t[#t + 1] = tostring((select(i, ...))) end return table.concat(t, " | ") end
     Say("names: UnitName=" .. Raw(UnitName("player")) .. "; UnitFullName=" .. Raw(UnitFullName and UnitFullName("player"))
         .. "; UnitPVPName=" .. Raw(UnitPVPName and UnitPVPName("player")) .. "; surname=" .. tostring(SurnameOf()))

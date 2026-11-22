@@ -15,7 +15,9 @@ ns.AccountWindow = AW
 
 local DEFAULT_W, DEFAULT_H = 1300, 720
 local MIN_W, MIN_H, MAX_W, MAX_H = 900, 460, 2400, 1500
-local EDGE, BAR_TOP, MAP_TOP, BOTTOM = 8, 44, 76, 16
+-- (the Blizzard frame: the toolbar sits in the strip under the title bar, above the window's top edge, right of the ring with the icon;
+-- the plates begin right below it)
+local EDGE, BAR_TOP, MAP_TOP, BOTTOM = 8, -24, 8, 16
 local LIST_W = 214
 local ROW_H = 24
 
@@ -771,7 +773,7 @@ local function NewTable(parent, owner)
 end
 
 -- the window ---------------------------------------------------------------------------------------
-local f = CreateFrame("Frame", "ForeverCodexAccount", UIParent, W.TEMPLATE)
+local f = CreateFrame("Frame", "ForeverCompanionAccount", UIParent, W.TEMPLATE)
 AW.frame = f
 f:SetSize(DEFAULT_W, DEFAULT_H)
 f:SetPoint("CENTER", UIParent, "CENTER", 30, 0)
@@ -812,8 +814,8 @@ title:SetText(L["Account"])
 title:SetTextColor(1, 0.85, 0.4)
 
 function AW.ApplyFrameStyle()
-    local ornate = (ns.db and ns.db.settings.frameStyle or "ornate") == "ornate"
-    local blizz = W.BlizzSkin(f, (ns.db and ns.db.settings.frameStyle or "ornate") == "blizzard", W.ICON.account, title:GetText(), "account")
+    local ornate = false
+    local blizz = W.BlizzSkin(f, true, W.ICON.account, title:GetText(), "account")
     title:SetAlpha(blizz and 0 or 1) -- (the frame's own title is shown instead)
     deco:SetShown(ornate)
     fill:SetShown(ornate)
@@ -926,7 +928,7 @@ search:SetScript("OnEditFocusLost", function(self) self:SetBackdropBorderColor(u
 
 -- the character list on the left -----------------------------------------------------------------------
 local listPlate = W.NewPlate(f, C.page)
-listPlate:SetPoint("TOPLEFT", f, "TOPLEFT", EDGE, -MAP_TOP + 4)
+listPlate:SetPoint("TOPLEFT", f, "TOPLEFT", EDGE, -(MAP_TOP + 6)) -- (under the ring)
 listPlate:SetPoint("BOTTOMLEFT", f, "BOTTOMLEFT", EDGE, BOTTOM)
 listPlate:SetWidth(LIST_W)
 
@@ -2085,6 +2087,7 @@ function AW.Dirty() dirty = true end
 local acc = 0
 f:SetScript("OnUpdate", function(_, dt)
     W.Step(dt)
+    if f.fcMoving then return end -- (nothing is drawn again while the window is dragged: it follows the mouse without a hitch)
     acc = acc + dt
     if (dirty and acc > 0.05) or acc > 5 then
         acc, dirty = 0, false
@@ -2135,8 +2138,8 @@ loader:SetScript("OnEvent", function()
     if ns.db and ns.db.accountShown then AW.Show() end
 end)
 
-SLASH_FOREVERCODEXACCOUNT1 = "/fcaccount"
-SLASH_FOREVERCODEXACCOUNT2 = "/fcalts"
-SLASH_FOREVERCODEXACCOUNT3 = "/fklaccount"
-SLASH_FOREVERCODEXACCOUNT4 = "/fklalts"
-SlashCmdList.FOREVERCODEXACCOUNT = function() AW.Toggle() end
+SLASH_FOREVERCOMPANIONACCOUNT1 = "/fcaccount"
+SLASH_FOREVERCOMPANIONACCOUNT2 = "/fcalts"
+SLASH_FOREVERCOMPANIONACCOUNT3 = "/fklaccount"
+SLASH_FOREVERCOMPANIONACCOUNT4 = "/fklalts"
+SlashCmdList.FOREVERCOMPANIONACCOUNT = function() AW.Toggle() end

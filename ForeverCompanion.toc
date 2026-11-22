@@ -1,10 +1,10 @@
 ## Interface: 16001
-## Title: Forever Codex
+## Title: Forever Companion
 ## Notes: Die Forever-Suite: Beute und Kills, Karte, Account-Übersicht aller Charaktere, Preise und Tooltips.
 ## Author: Christian Remy
 ## Version: 0.1.0
-## SavedVariables: ForeverCodexDB, ForeverKillLogDB
-## IconTexture: Interface\AddOns\ForeverCodex\Media\logo
+## SavedVariables: ForeverCompanionDB, ForeverKillLogDB
+## IconTexture: Interface\AddOns\ForeverCompanion\Media\logo
 
 Libs\LibStub\LibStub.lua
 Libs\CallbackHandler-1.0\CallbackHandler-1.0.lua
@@ -23,11 +23,11 @@ Dropdown.lua
 Data\MapOverlays.lua
 Data\Recipes.lua
 Data\Disenchant.lua
+Data\AuctionSeed.lua
 MapView.lua
 UI.lua
 SessionHUD.lua
 PageSources.lua
-PageLoot.lua
 PageSearch.lua
 PageHistory.lua
 PageStats.lua
@@ -38,7 +38,13 @@ AccountWindow.lua
 MapWindow.lua
 SettingsWindow.lua
 AuctionDashboard.lua
+AuctionSell.lua
+AuctionBuy.lua
+AuctionShop.lua
+AuctionOwn.lua
+AuctionCraft.lua
 ItemInfo.lua
 BgPicker.lua
 AuctionTab.lua
+QuickBar.lua
 Minimap.lua

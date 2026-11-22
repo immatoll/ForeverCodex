@@ -201,7 +201,8 @@ end
 -- a made-up icon for a wolf or a bandit says nothing about it.
 function ns.SourceIcon(gm)
     if gm.cat == "mob" then return nil end
-    return ns.CAT[gm.cat].icon
+    -- plants and veins: the picture of the material they give (the category's picture until that is known)
+    return (ns.SourceMapIcon and ns.SourceMapIcon(gm)) or ns.CAT[gm.cat].icon
 end
 
 -- A skinned corpse belongs to its creature. Skinning is still stored as its own
@@ -752,6 +753,11 @@ function ns.MoneyOn() return ns.db.settings.countMoney ~= false end
 
 -- Coins are loot too. They count towards the value (a setting), and a corpse that only
 -- had coins is still a kill.
+-- Something was looted or gathered: the session window opens by itself (a setting, on unless switched off).
+function ns.OnFind()
+    if ns.db.settings.autoOpenSession ~= false and ns.HUD then ns.HUD.Show() end
+end
+
 local function RecordMoney(cat, name, copper, guid)
     if not copper or copper <= 0 then return end
     local key = SourceKey(cat, name)
@@ -776,6 +782,7 @@ local function RecordMoney(cat, name, copper, guid)
         if ns.Routes then ns.Routes.OnLoot(copper) end
         AddValue(gm, copper, sm)
         ns.lastFind = { money = true, value = copper, source = name, cat = cat }
+        ns.OnFind()
     end
 end
 
@@ -840,6 +847,7 @@ local function RecordLoot(cat, name, link, qty, guid)
     if ns.Routes then ns.Routes.OnLoot(copper) end
     AddValue(gm, copper, sm)
     ns.lastFind = { link = link, qty = qty, value = copper, source = name, cat = cat } -- (the last thing looted or gathered: the footer of the session window shows it)
+    ns.OnFind()
 end
 
 local function CreatureName(guid)
@@ -1166,10 +1174,10 @@ f:RegisterEvent("ADDON_LOADED")
 
 local function InitDB()
     -- the addon was called ForeverKillLog: take its data over once, and drop the old name so it is not saved twice
-    if not ForeverCodexDB and ForeverKillLogDB then ForeverCodexDB = ForeverKillLogDB end
+    if not ForeverCompanionDB and ForeverKillLogDB then ForeverCompanionDB = ForeverKillLogDB end
     ForeverKillLogDB = nil
-    ForeverCodexDB = ForeverCodexDB or {}
-    local db = ForeverCodexDB
+    ForeverCompanionDB = ForeverCompanionDB or {}
+    local db = ForeverCompanionDB
     if db.version ~= DB_VERSION then
         -- the source model changed (categories); old test data cannot be mapped
         db.mobs, db.items, db.heat = {}, {}, {}
@@ -1195,7 +1203,7 @@ f:SetScript("OnEvent", function(_, event, ...)
         InitDB()
         for _, fn in ipairs(afterLoad) do
             local ok, err = pcall(fn)
-            if not ok then print("|cffffd100Forever Codex:|r " .. tostring(err)) end
+            if not ok then print("|cffffd100Forever Companion:|r " .. tostring(err)) end
         end
         wipe(afterLoad)
         if not ns.db.nodeMerged then ns.MergeNodeSpots(); ns.db.nodeMerged = true end
@@ -1274,41 +1282,42 @@ function ns.ResetAll()
     ns.NewSession()
 end
 
-SLASH_FOREVERCODEX1 = "/fc"
-SLASH_FOREVERCODEX2 = "/codex"
-SLASH_FOREVERCODEX3 = "/fkl" -- the old name
-SLASH_FOREVERCODEX4 = "/killlog"
-SlashCmdList.FOREVERCODEX = function(msg)
+SLASH_FOREVERCOMPANION1 = "/fc"
+SLASH_FOREVERCOMPANION2 = "/companion"
+SLASH_FOREVERCOMPANION5 = "/codex"
+SLASH_FOREVERCOMPANION3 = "/fkl" -- the old name
+SLASH_FOREVERCOMPANION4 = "/killlog"
+SlashCmdList.FOREVERCOMPANION = function(msg)
     local cmd, arg = (msg or ""):lower():match("^(%S*)%s*(%S*)")
     if cmd == "reset" then
         if arg == "all" then
             ns.ResetAll()
-            print("|cffffd100ForeverCodex:|r " .. L["All data deleted."])
+            print("|cffffd100ForeverCompanion:|r " .. L["All data deleted."])
         else
             ns.EndSession()
-            print("|cffffd100ForeverCodex:|r " .. L["Session ended."])
+            print("|cffffd100ForeverCompanion:|r " .. L["Session ended."])
         end
     elseif cmd == "pause" then
         ns.TogglePause()
-        print("|cffffd100ForeverCodex:|r " .. (ns.session.paused and L["Session paused."] or L["Session resumed."]))
+        print("|cffffd100ForeverCompanion:|r " .. (ns.session.paused and L["Session paused."] or L["Session resumed."]))
     elseif cmd == "end" then
         ns.EndSession()
-        print("|cffffd100ForeverCodex:|r " .. L["Session ended."])
+        print("|cffffd100ForeverCompanion:|r " .. L["Session ended."])
     elseif cmd == "value" then
         if arg == "vendor" or arg == "auction" then ns.db.valueSource = arg end
-        print("|cffffd100ForeverCodex:|r " .. L["Value source: %s"]:format(L[ns.db.valueSource]))
+        print("|cffffd100ForeverCompanion:|r " .. L["Value source: %s"]:format(L[ns.db.valueSource]))
         ns.Refresh()
     elseif cmd == "minimap" then
         local icon = LibStub and LibStub("LibDBIcon-1.0", true)
         if icon and ns.db.minimap then
             ns.db.minimap.hide = not ns.db.minimap.hide
-            if ns.db.minimap.hide then icon:Hide("ForeverCodex") else icon:Show("ForeverCodex") end
+            if ns.db.minimap.hide then icon:Hide("ForeverCompanion") else icon:Show("ForeverCompanion") end
         end
     elseif cmd == "help" then
-        print("|cffffd100ForeverCodex:|r " .. L["Commands: /fc, /fc journal, /fc nav, /fc reset, /fc minimap"])
+        print("|cffffd100ForeverCompanion:|r " .. L["Commands: /fc, /fc journal, /fc nav, /fc reset, /fc minimap"])
     elseif cmd == "debug" then
         ns.db.debug = not ns.db.debug
-        print("|cffffd100ForeverCodex:|r " .. (ns.db.debug and "debug on: gather something and read the lines" or "debug off"))
+        print("|cffffd100ForeverCompanion:|r " .. (ns.db.debug and "debug on: gather something and read the lines" or "debug off"))
     elseif cmd == "accdebug" then
         ns.Acc.Debug()
     elseif cmd == "account" or cmd == "alts" then

@@ -11,7 +11,7 @@ local TOP_N = 3
 ns.TIP_OPTIONS = {
     { "master", L["Show information in tooltips"], true, "general" },
     { "shiftOnly", L["Only while Shift is held"], false, "general" },
-    { "header", L["Heading line"], true, "general" },
+    { "header", L["Heading line"], false, "general" },
 
     { "itemVendor", L["Vendor price"], true, "item" },
     { "itemAuction", L["Auction price"], true, "item" },
@@ -29,6 +29,10 @@ ns.TIP_OPTIONS = {
     { "mobProgress", L["Progress to the drop chances"], false, "mob" },
     { "mobTop", L["Best drops (top 3)"], true, "mob" },
     { "mobAvg", L["Average value per kill"], true, "mob" },
+
+    { "nodeVisited", L["Visited here, and when last"], true, "node" },
+    { "nodeGathered", L["Times gathered and value"], true, "node" },
+    { "nodeDrops", L["What it gives (top 3)"], true, "node" },
 }
 local DEFAULT = {}
 for _, o in ipairs(ns.TIP_OPTIONS) do DEFAULT[o[1]] = o[3] end
@@ -63,7 +67,8 @@ end
 -- title (with a note on the right) after a little space.
 local function Finish(tt, lines)
     if #lines == 0 then return end
-    if ns.TipOn("header") then tt:AddLine(GOLD_HEX .. "Forever Codex|r") end
+    tt:AddLine(" ") -- (a blank line: our lines are set apart from the game's own)
+    if ns.TipOn("header") then tt:AddLine(GOLD_HEX .. "Forever Companion|r") end
     for i, ln in ipairs(lines) do
         if ln.head then
             if i > 1 or ns.TipOn("header") then tt:AddLine(" ") end
@@ -250,7 +255,7 @@ local function Try(name, fn, ...)
     if ok then return a, b end
     if not reported[name] then
         reported[name] = true
-        print("|cffffd100ForeverCodex:|r tooltip (" .. name .. "): " .. tostring(a))
+        print("|cffffd100ForeverCompanion:|r tooltip (" .. name .. "): " .. tostring(a))
     end
     return {}, {}
 end
@@ -443,9 +448,10 @@ local function ItemLines(id, count)
         end
     end
 
-    -- what you looted of it
+    -- what you looted of it (only while the session window is open: otherwise the tooltip is not about loot)
     local gi = ns.db.items[id]
-    if gi and ns.TipOn("itemOwned") then
+    local sessionOpen = ns.HUD and ns.HUD.frame and ns.HUD.frame:IsShown()
+    if gi and sessionOpen and ns.TipOn("itemOwned") then
         local si = ns.session and ns.session.items[id]
         local unit = V.Get(id)
         lines[#lines + 1] = { head = L["Your loot"] }
@@ -467,7 +473,12 @@ local function ItemLines(id, count)
             if a.pct ~= b.pct then return a.pct > b.pct end
             return a.qty > b.qty
         end)
-        if #list > 0 then
+        -- (not for what only comes from nodes: herbs and ore have no creature to name)
+        local fromCreature = false
+        for _, e in ipairs(list) do
+            if e.gm.cat == "mob" or e.gm.cat == "skin" then fromCreature = true break end
+        end
+        if #list > 0 and fromCreature then
             lines[#lines + 1] = { head = L["Drops from"], right = #list > TOP_N and (L["top %d of %d"]):format(TOP_N, #list) or nil }
             for i = 1, math.min(TOP_N, #list) do
                 local e = list[i]
@@ -523,6 +534,10 @@ local function ItemLines(id, count)
             end
         end
     end
+    -- until the auction house has been visited (a scan is stored): a hint, as much of this only shows when items are hovered there
+    if not (ns.AH and ns.AH.Time and ns.AH.Time() and not (ns.AH.Seeded and ns.AH.Seeded())) then
+        table.insert(lines, 1, { AMBER .. L["Visit the auction house: much more is shown here once you have hovered items there."] .. "|r" })
+    end
     return lines
 end
 
@@ -533,7 +548,7 @@ local function OnItem(tt, id)
     tt.fcDone = true
     local ok, lines = pcall(ItemLines, id, StackCount(tt))
     if not ok then
-        if not reported.item then reported.item = true; print("|cffffd100ForeverCodex:|r tooltip: " .. tostring(lines)) end
+        if not reported.item then reported.item = true; print("|cffffd100ForeverCompanion:|r tooltip: " .. tostring(lines)) end
         return
     end
     Finish(tt, lines)
@@ -602,6 +617,76 @@ local function OnUnit(tt)
     Finish(tt, MobLines(gm, name))
 end
 
+-- resources (herbs, veins, other nodes): has it been gathered, here and in general, when last, and what it gives -------------------
+local NODE_CATS = { "herb", "ore", "object" }
+local NEAR_YARDS = 60
+
+local function NodeRecord(name)
+    for _, cat in ipairs(NODE_CATS) do
+        local gm = ns.db.mobs[cat .. ":" .. name]
+        if gm and gm.cat == cat and (gm.kills or 0) > 0 and ns.CatOn(cat) then return gm end
+    end
+end
+
+local function NodeLines(gm)
+    local lines = {}
+    local kills = gm.kills or 0
+    local spots, last, nearest, nearestD = 0, nil, nil, nil
+    local mapID, px, py = ns.PlayerPos()
+    local w, h
+    if mapID then w, h = ns.WorldSize(mapID) end
+    for _, sp in pairs(gm.spots or {}) do
+        spots = spots + 1
+        if sp.t and (not last or sp.t > last) then last = sp.t end
+        if mapID and sp.m == mapID and w and h then
+            local dx, dy = (sp.x - px) * w, (sp.y - py) * h
+            local d = math.sqrt(dx * dx + dy * dy)
+            if d <= NEAR_YARDS and (not nearestD or d < nearestD) then nearest, nearestD = sp, d end
+        end
+    end
+    if ns.TipOn("nodeVisited") then
+        lines[#lines + 1] = { head = L["Resource"] }
+        if nearest then
+            lines[#lines + 1] = { L["This spot"], GREEN .. (L["visited %dx"]):format(nearest.n or 1) .. "|r" .. (nearest.t and (" " .. GREY .. "· " .. ns.Ago(nearest.t) .. "|r") or "") }
+        elseif mapID then
+            lines[#lines + 1] = { L["This spot"], AMBER .. L["not saved yet"] .. "|r" }
+        end
+        lines[#lines + 1] = { L["Known spots"], tostring(spots) .. (last and (" " .. GREY .. "· " .. L["last"] .. " " .. ns.Ago(last) .. "|r") or "") }
+    end
+    local list, total = {}, ns.MoneyOn() and (gm.money or 0) or 0
+    for id, count in pairs(gm.items or {}) do
+        local unit = ns.Value.Get(id)
+        total = total + unit * count
+        local pct = ns.DropChance(gm, id)
+        if pct and unit > 0 then list[#list + 1] = { id = id, unit = unit, pct = pct, expect = unit * pct / 100 } end
+    end
+    if ns.TipOn("nodeGathered") then
+        lines[#lines + 1] = { L["Gathered"], kills .. "x" .. (kills > 0 and total > 0 and (" " .. GREY .. "· " .. Money(total / kills) .. " " .. L["each"] .. "|r") or "") }
+    end
+    if ns.TipOn("nodeDrops") and #list > 0 then
+        table.sort(list, function(a, b) return a.expect > b.expect end)
+        lines[#lines + 1] = { GOLD_HEX .. L["Gives"] .. "|r" }
+        for i = 1, math.min(TOP_N, #list) do
+            local e = list[i]
+            local gi = ns.db.items[e.id]
+            lines[#lines + 1] = { "  " .. ((gi and gi.link) or ("item:" .. e.id)), ("%d %%"):format(e.pct + 0.5) .. "  " .. Money(e.unit) }
+        end
+    end
+    return lines
+end
+
+local function OnObject(tt)
+    if tt.fcDone or not Allowed() or not ns.db then return end
+    local line = tt.GetName and tt:GetName() and _G[tt:GetName() .. "TextLeft1"]
+    local name = line and ns.Readable(line:GetText())
+    if not name or name == "" then return end
+    local gm = NodeRecord(name)
+    if not gm then return end
+    tt.fcDone = true
+    local ok, lines = pcall(NodeLines, gm)
+    if ok then Finish(tt, lines) end
+end
+
 -- hooks: the newer tooltip system when there is one, the older script events otherwise ---------
 local tips = { GameTooltip, ItemRefTooltip }
 for _, tt in ipairs(tips) do
@@ -619,6 +704,12 @@ if TooltipDataProcessor and TooltipDataProcessor.AddTooltipPostCall and Enum and
         if tt ~= GameTooltip then return end
         OnUnit(tt)
     end)
+    if Enum.TooltipDataType.Object then
+        TooltipDataProcessor.AddTooltipPostCall(Enum.TooltipDataType.Object, function(tt)
+            if tt ~= GameTooltip then return end
+            OnObject(tt)
+        end)
+    end
 else
     for _, tt in ipairs(tips) do
         if tt and tt.HookScript then
@@ -628,7 +719,14 @@ else
             end)
         end
     end
-    if GameTooltip then pcall(GameTooltip.HookScript, GameTooltip, "OnTooltipSetUnit", OnUnit) end
+    if GameTooltip then
+        pcall(GameTooltip.HookScript, GameTooltip, "OnTooltipSetUnit", OnUnit)
+        -- (a node is neither a unit nor an item: its name is looked up when the tooltip is shown)
+        pcall(GameTooltip.HookScript, GameTooltip, "OnShow", function(self)
+            local _, unit = self:GetUnit()
+            if not unit and not (self.GetItem and self:GetItem()) then OnObject(self) end
+        end)
+    end
 end
 
 -- pressing or letting go of Shift redraws the tooltip of an item, so that its price follows (one piece / the stack)
@@ -641,3 +739,142 @@ shiftWatch:SetScript("OnEvent", function(_, _, key)
     local enter = owner and owner.GetScript and owner:GetScript("OnEnter")
     if enter then pcall(enter, owner) end
 end)
+
+-- A tooltip with made-up data, for the settings page: the same lines, switched by the same options, so that a change can be seen at once.
+-- kind: "item" or "mob". (The shift options do not hide anything here: the settings say so.)
+local function Change(values)
+    local first, last
+    for _, v in ipairs(values) do if v > 0 then first = first or v; last = v end end
+    return (first and last and first > 0) and ((last - first) / first * 100) or nil
+end
+local function Pct(v) return ("%+d %%"):format(v + (v >= 0 and 0.5 or -0.5)) end
+
+local function SampleItemLines()
+    local lines = {}
+    local count, vendor, price = 20, 12000, 31500
+    local canStack = ns.TipOn("itemStack")
+    local showVendor, showAuction = ns.TipOn("itemVendor"), ns.TipOn("itemAuction")
+    if showVendor or showAuction then
+        local note
+        if showAuction then
+            note = L["own scan"]
+            if ns.TipOn("itemAge") then note = note .. "  ·  " .. ns.Ago(time() - 7200) end
+        end
+        if canStack then note = (note and (note .. "  ·  ") or "") .. L["Shift: stack"] .. " x" .. count end
+        lines[#lines + 1] = { head = L["Prices"], right = note }
+        if showVendor then lines[#lines + 1] = { L["Vendor"], Money(vendor) } end
+        if showAuction then lines[#lines + 1] = { L["Auction"], Money(price) } end
+        if ns.TipOn("itemDiff") and showAuction and showVendor then
+            local pct = (price - vendor) / vendor * 100
+            lines[#lines + 1] = { L["Profit"], GREEN .. Pct(pct) .. "|r" }
+        end
+    end
+    if ns.TipOn("itemTrend") then
+        local pr = { 28000, 30000, 29000, 31000, 33000, 32000, 31500 }
+        local qty = { 40, 36, 38, 31, 29, 33, 27 }
+        local dem = { 4, 6, 5, 7, 6, 8, 9 }
+        lines[#lines + 1] = { head = L["Auction trend"], right = (L["%d days of data"]):format(7) }
+        local pc = Change(pr)
+        local pcol = pc > 0.5 and AMBER or (pc < -0.5 and GREEN or GREY)
+        lines[#lines + 1] = { L["Price"] .. " " .. GREY .. "(" .. L["avg"] .. " " .. "|r" .. Money(30500) .. GREY .. ")|r " .. pcol .. Pct(pc) .. "|r", Bars(pr) }
+        local qc = Change(qty)
+        lines[#lines + 1] = { L["Supply"] .. " " .. GREY .. "(27)|r " .. (qc > 0 and AMBER or GREEN) .. Pct(qc) .. "|r", Bars(qty) }
+        local dc = Change(dem)
+        lines[#lines + 1] = { L["Demand"] .. " " .. GREY .. "(9/d)|r " .. (dc > 0 and GREEN or AMBER) .. Pct(dc) .. "|r", Bars(dem) }
+    end
+    if ns.TipOn("itemOwned") then
+        lines[#lines + 1] = { head = L["Your loot"] }
+        lines[#lines + 1] = { L["This session / total"], "3 / 41" }
+        lines[#lines + 1] = { L["Worth"], Money(price * 41) }
+    end
+    if ns.TipOn("itemSources") then
+        lines[#lines + 1] = { head = L["Drops from"], right = (L["top %d of %d"]):format(3, 5) }
+        for _, e in ipairs({ { "Rotfang Gnoll", "12-14", "Westfall", "18 %" }, { "Defias Pillager", "13-15", "Westfall", "11 %" },
+            { "Young Wolf", "9-11", "Elwynn Forest", "6 %" } }) do
+            lines[#lines + 1] = { e[1] .. " " .. GREY .. L["Lv"] .. " " .. e[2] .. " · " .. e[3] .. "|r", e[4] }
+        end
+    end
+    if ns.TipOn("itemDisenchant") then
+        lines[#lines + 1] = { head = L["Disenchanting"], right = "Ø " .. Money(2400) }
+        lines[#lines + 1] = { "|TInterface\\Icons\\INV_Misc_Dust_02:14:14:0:0:64:64:5:59:5:59|t " .. "|cff1eff00Strange Dust|r " .. GREY .. "75 %|r", "1-2 × " .. Money(300) }
+        lines[#lines + 1] = { "|TInterface\\Icons\\INV_Enchant_EssenceMagicLarge:14:14:0:0:64:64:5:59:5:59|t " .. "|cff1eff00Greater Magic Essence|r " .. GREY .. "20 %|r", "1 × " .. Money(1800) }
+        lines[#lines + 1] = { "|TInterface\\Icons\\INV_Enchant_ShardGlimmeringSmall:14:14:0:0:64:64:5:59:5:59|t " .. "|cff0070ddSmall Glimmering Shard|r " .. GREY .. "5 %|r", "1 × " .. Money(2500) }
+        lines[#lines + 1] = { L["Against selling it"], GREEN .. "+12 %|r" }
+    end
+    if ns.TipOn("itemCraft") then
+        lines[#lines + 1] = { head = L["Crafting"], right = GREY .. L["Shift: recipes"] .. "|r" }
+        lines[#lines + 1] = { L["Used in"], ProfList({ Blacksmithing = 12, Engineering = 4 }) }
+        lines[#lines + 1] = { L["Made by"], ProfList({ Alchemy = 1 }) }
+        lines[#lines + 1] = { L["Needed by"], "|cffc79c6eThordek|r, |cff69ccf0Mirelle|r" }
+        lines[#lines + 1] = { L["Known by"] .. " " .. GREY .. "(Alchemy)|r", "|cff69ccf0Mirelle|r" }
+    end
+    if ns.TipOn("itemAlts") then
+        lines[#lines + 1] = { head = L["Your characters"] }
+        lines[#lines + 1] = { "|cffc79c6eThordek|r", GREY .. "3 " .. L["bags"] .. ", 1 " .. L["bank"] .. "|r" }
+        lines[#lines + 1] = { "|cff69ccf0Mirelle|r", GREY .. "2 " .. L["mail"] .. "|r" }
+    end
+    return lines
+end
+
+local function SampleMobLines()
+    local lines = {}
+    local left = ns.TipOn("mobKills") and (L["Killed"] .. " 64") or nil
+    local right = ns.TipOn("mobAvg") and (Money(14200) .. " " .. GREY .. L["per kill"] .. "|r") or nil
+    if left or right then lines[#lines + 1] = { left or L["Value per kill"], right } end
+    if ns.TipOn("mobProgress") then
+        lines[#lines + 1] = { L["Drop chances"], AMBER .. "64 / 100|r " .. GREY .. L["kills"] .. "|r" }
+    end
+    if ns.TipOn("mobTop") then
+        lines[#lines + 1] = { GOLD_HEX .. L["Best drops"] .. "|r" }
+        for _, e in ipairs({ { "|cff0070ddMithril Ore|r", "9 %", 4200 }, { "|cff1eff00Green Hills of Stranglethorn|r", "14 %", 1800 },
+            { "|cffffffffLinen Cloth|r", "42 %", 150 } }) do
+            lines[#lines + 1] = { "  " .. e[1], e[2] .. "  " .. Money(e[3]) }
+        end
+    end
+    return lines
+end
+
+-- all: as if every option were on (to measure the largest the tooltip can get)
+local function SampleNodeLines()
+    local lines = {}
+    if ns.TipOn("nodeVisited") then
+        lines[#lines + 1] = { head = L["Resource"] }
+        lines[#lines + 1] = { L["This spot"], GREEN .. (L["visited %dx"]):format(7) .. "|r " .. GREY .. "· " .. ns.Ago(time() - 5400) .. "|r" }
+        lines[#lines + 1] = { L["Known spots"], "12 " .. GREY .. "· " .. L["last"] .. " " .. ns.Ago(time() - 600) .. "|r" }
+    end
+    if ns.TipOn("nodeGathered") then
+        lines[#lines + 1] = { L["Gathered"], "58x " .. GREY .. "· " .. Money(2300) .. " " .. L["each"] .. "|r" }
+    end
+    if ns.TipOn("nodeDrops") then
+        lines[#lines + 1] = { GOLD_HEX .. L["Gives"] .. "|r" }
+        for _, e in ipairs({ { "|cffffffffPeacebloom|r", "100 %", 450 }, { "|cff1eff00Bruiseweed|r", "35 %", 900 },
+            { "|cff1eff00Goldthorn|r", "8 %", 3200 } }) do
+            lines[#lines + 1] = { "  " .. e[1], e[2] .. "  " .. Money(e[3]) }
+        end
+    end
+    return lines
+end
+
+function ns.TipPreview(tt, kind, all)
+    tt:ClearLines()
+    if kind == "node" then
+        tt:AddLine("Peacebloom", 1, 1, 1)
+        tt:AddLine("Requires Herbalism", 1, 1, 1)
+    elseif kind == "mob" then
+        tt:AddLine("Rotfang Gnoll", 1, 0.82, 0)
+        tt:AddLine("Level 14 Humanoid", 1, 1, 1)
+    else
+        tt:AddLine("Arcane Crystal", 0, 0.44, 0.87)
+        tt:AddLine("Crafting Reagent", 1, 1, 1)
+    end
+    local real = ns.TipOn
+    if all then ns.TipOn = function() return true end end
+    local ok, err = pcall(function()
+        if ns.TipOn("master") then
+            Finish(tt, kind == "node" and SampleNodeLines() or (kind == "mob" and SampleMobLines() or SampleItemLines()))
+        end
+    end)
+    ns.TipOn = real
+    if not ok then error(err, 0) end
+    tt:Show()
+end

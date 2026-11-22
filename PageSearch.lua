@@ -5,9 +5,9 @@ local UI = ns.UI
 local C = W.C
 local Ease = W.Ease
 
--- Search: type a name, get items and sources from everything ever recorded.
--- For an item the right page ranks where it drops best (items per kill); for a
--- source it lists what it drops and how often.
+-- Item search: type a name, get the items of everything ever recorded. The right page ranks where
+-- the item drops best (items per kill); a click on a source there opens it in the bestiary or in
+-- the gathering page, which have a search of their own.
 
 local LIST_W, GAP = 300, 8
 local REL_ROWS = 8
@@ -27,8 +27,8 @@ local function Colored(link)
     return color and ("|c" .. color .. name .. "|r") or link
 end
 
-UI.AddPage({ id = "search", label = L["Search"], icon = "Interface\\Icons\\INV_Misc_Spyglass_02",
-    hint = L["Find an item or a source and see where it drops best."],
+UI.AddPage({ id = "search", label = L["Item search"], icon = "Interface\\Icons\\INV_Misc_Spyglass_02",
+    hint = L["Find an item and see where it drops best."],
     Build = function(area)
         local obj = {}
         local frame = CreateFrame("Frame", nil, area)
@@ -37,7 +37,6 @@ UI.AddPage({ id = "search", label = L["Search"], icon = "Interface\\Icons\\INV_M
         local RW = UI.AREA_W - LIST_W - GAP
         local sel
         local query = ""
-        local kind = "all" -- all | items | sources
 
         local left = W.NewPlate(frame, C.page)
         left:SetSize(LIST_W, H)
@@ -67,24 +66,10 @@ UI.AddPage({ id = "search", label = L["Search"], icon = "Interface\\Icons\\INV_M
         edit:SetScript("OnEditFocusLost", function() box:SetBackdropBorderColor(unpack(C.goldDim)) end)
         obj.edit = edit
 
-        -- kind filter
-        local kinds = {}
-        local function Kind(id, icon, label, x)
-            local b = W.NewIconButton(left, icon, 24)
-            b:SetPoint("TOPLEFT", x, -42)
-            b:SetTip(label)
-            b:SetScript("OnClick", function() kind = id; obj.lv:ScrollToTop(); UI.Dirty() end)
-            b.id = id
-            kinds[#kinds + 1] = b
-        end
-        Kind("all", W.ICON.search, L["All"], 8)
-        Kind("items", W.ICON.loot, L["Items"], 36)
-        Kind("sources", W.ICON.sword, L["Sources"], 64)
-        local info = Label(left, "GameFontHighlightSmall", C.muted, "TOPRIGHT", -10, -47)
-        info:SetJustifyH("RIGHT")
+        local info = Label(left, "GameFontHighlightSmall", C.muted, "TOPLEFT", 12, -47)
 
-        obj.lv = UI.NewListView(left, LIST_W - 14, H - 76, 44)
-        obj.lv.frame:SetPoint("TOPLEFT", left, "TOPLEFT", 7, -70)
+        obj.lv = UI.NewListView(left, LIST_W - 14, H - 70, 44)
+        obj.lv.frame:SetPoint("TOPLEFT", left, "TOPLEFT", 7, -64)
 
         -- right page ------------------------------------------------------------
         local right = W.NewPlate(frame, C.page)
@@ -173,12 +158,8 @@ UI.AddPage({ id = "search", label = L["Search"], icon = "Interface\\Icons\\INV_M
                 if GameTooltip:GetOwner() == self then GameTooltip:Hide() end
             end)
             r:SetScript("OnClick", function(self)
-                -- jump to that source / item in the search results
-                if self.jump then
-                    sel, kind = self.jump, "all"
-                    edit:SetText("")
-                    UI.Dirty()
-                end
+                -- a source: open it in the bestiary / the gathering page
+                if self.jump then ns.UI.OpenEntry(self.jump[1], self.jump[2]) end
             end)
             d.rel[i] = r
         end
@@ -191,7 +172,7 @@ UI.AddPage({ id = "search", label = L["Search"], icon = "Interface\\Icons\\INV_M
         local function Entries()
             local list = {}
             local q = query
-            if kind ~= "sources" then
+            do
                 for id, gi in pairs(ns.db.items) do
                     local name = ItemName(gi.link)
                     if gi.link and (q == "" or name:lower():find(q, 1, true)) then
@@ -213,19 +194,6 @@ UI.AddPage({ id = "search", label = L["Search"], icon = "Interface\\Icons\\INV_M
                                 tip = function() GameTooltip:SetHyperlink(gi.link) end,
                             }
                         end
-                    end
-                end
-            end
-            if kind ~= "items" then
-                for key, gm in pairs(ns.db.mobs) do
-                    if ns.CatOn(gm.cat) and gm.cat ~= "skin" and (q == "" or (gm.name or key):lower():find(q, 1, true)) then
-                        local cat = ns.CAT[gm.cat]
-                        list[#list + 1] = {
-                            key = "s" .. key, texture = ns.SourceIcon(gm), noIcon = gm.cat == "mob", quality = 1, name = gm.name or key,
-                            sub = cat.label .. (gm.zone and (" · " .. gm.zone) or ""),
-                            right = tostring(gm.kills), right2 = cat.verb,
-                            sort = gm.kills, srcKey = key,
-                        }
                     end
                 end
             end
@@ -300,51 +268,7 @@ UI.AddPage({ id = "search", label = L["Search"], icon = "Interface\\Icons\\INV_M
                         SetRel(i, { icon = cat.icon, edge = cat.color, name = (i == 1 and x.gm.kills >= 5 and "* " or "") .. (x.gm.name or x.key) .. (x.gm.cat == "skin" and (" (" .. cat.label .. ")") or ""),
                             count = x.c .. "× / " .. x.gm.kills, rate = string.format("%.2f", x.rate),
                             rateColor = i == 1 and C.jade or C.text, fillColor = cat.color, frac = x.rate / top,
-                            jump = "s" .. x.key })
-                    else
-                        SetRel(i, nil)
-                    end
-                end
-                if #rel > REL_ROWS then d.more:SetText(L["and %d more"]:format(#rel - REL_ROWS)) end
-            else
-                local gm = ns.db.mobs[e.srcKey]
-                local cat = ns.CAT[gm.cat]
-                local hasIcon = gm.cat ~= "mob"
-                d.srcIconEdge:SetShown(hasIcon)
-                d.srcIcon:SetShown(hasIcon)
-                d.srcIcon:SetTexture(cat.icon)
-                d.name:ClearAllPoints(); d.name:SetPoint("TOPLEFT", hasIcon and 80 or 16, -18)
-                d.sub:ClearAllPoints(); d.sub:SetPoint("TOPLEFT", hasIcon and 80 or 16, -46)
-                d.srcIconEdge:SetColorTexture(cat.color[1], cat.color[2], cat.color[3], 1)
-                d.name:SetText(gm.name or e.srcKey)
-                d.sub:SetText(cat.label .. (gm.zone and (" · " .. gm.zone) or ""))
-                local rel, kinds, value = {}, 0, 0
-                for id, c in pairs(ns.MergedItems(gm)) do
-                    local gi = ns.db.items[id]
-                    if gi and gi.link then
-                        kinds = kinds + 1
-                        value = value + ns.Value.Get(id) * c
-                        rel[#rel + 1] = { id = id, gi = gi, c = c, rate = c / math.max(1, gm.kills) }
-                    end
-                end
-                table.sort(rel, function(a, b)
-                    if a.rate ~= b.rate then return a.rate > b.rate end
-                    return a.id < b.id
-                end)
-                local avg = gm.kills > 0 and value / gm.kills or 0
-                local labels = { cat.verb, L["Items"], L["Value"], L["Avg per"] }
-                local values = { tostring(gm.kills), tostring(kinds), fmt(value) ~= "" and fmt(value) or "-",
-                    fmt(avg) ~= "" and fmt(avg) or "-" }
-                for i, s in ipairs(d.stats) do s.label:SetText(labels[i]); s.value:SetText(values[i]) end
-                d.relTitle:SetText(L["What it drops"])
-                d.relHead:SetText(L["per kill"])
-                local top = rel[1] and rel[1].rate or 1
-                for i = 1, REL_ROWS do
-                    local x = rel[i]
-                    if x then
-                        SetRel(i, { icon = W.ItemTexture(x.id), edge = W.QUALITY_COLOR[x.gi.quality or 1], link = x.gi.link,
-                            name = Colored(x.gi.link), count = "×" .. x.c, rate = string.format("%.2f", x.rate),
-                            fillColor = W.QUALITY_COLOR[x.gi.quality or 1], frac = x.rate / top, jump = "i" .. x.id })
+                            jump = { x.gm.cat == "mob" and "bestiary" or "gathering", x.key } })
                     else
                         SetRel(i, nil)
                     end
@@ -358,7 +282,6 @@ UI.AddPage({ id = "search", label = L["Search"], icon = "Interface\\Icons\\INV_M
             local found, current
             for _, x in ipairs(entries) do if x.key == sel then found, current = true, x break end end
             if not found then current = entries[1]; sel = current and current.key end
-            for _, b in ipairs(kinds) do b:SetActive(b.id == kind) end
             info:SetText(L["%d entries"]:format(#entries))
             obj.lv:SetData(entries, sel, function(e) sel = e.key; UI.Dirty() end, L["Nothing found."])
             Show(current)

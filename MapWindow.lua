@@ -13,7 +13,7 @@ ns.MapWindow = MapWindow
 local DEFAULT_W, DEFAULT_H = 280, 230
 local PAD = 6
 
-local win = CreateFrame("Frame", "ForeverCodexMapWindow", UIParent, W.TEMPLATE)
+local win = CreateFrame("Frame", "ForeverCompanionMapWindow", UIParent, W.TEMPLATE)
 win:SetSize(DEFAULT_W, DEFAULT_H)
 win:SetPoint("CENTER", UIParent, "CENTER", 300, 0)
 win:SetFrameStrata("MEDIUM")
@@ -159,6 +159,6 @@ loader:SetScript("OnEvent", function()
     if ns.db and ns.db.mapWinShown then MapWindow.Show() end
 end)
 
-SLASH_FOREVERCODEXMINI1 = "/fcmini"
-SLASH_FOREVERCODEXMINI2 = "/fklmini"
-SlashCmdList.FOREVERCODEXMINI = function() MapWindow.Toggle() end
+SLASH_FOREVERCOMPANIONMINI1 = "/fcmini"
+SLASH_FOREVERCOMPANIONMINI2 = "/fklmini"
+SlashCmdList.FOREVERCOMPANIONMINI = function() MapWindow.Toggle() end

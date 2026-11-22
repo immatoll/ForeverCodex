@@ -12,17 +12,24 @@ loader:SetScript("OnEvent", function()
 
     ns.db.minimap = ns.db.minimap or { hide = false }
 
-    local object = broker:NewDataObject("ForeverCodex", {
+    local object = broker:NewDataObject("ForeverCompanion", {
         type = "launcher",
-        text = L["Kills & Loot"],
-        icon = "Interface\\AddOns\\ForeverCodex\\Media\\logo64",
+        text = L["Forever Companion"],
+        icon = "Interface\\AddOns\\ForeverCompanion\\Media\\logo64",
         OnClick = function(_, button)
-            if button == "RightButton" or IsShiftKeyDown() then ns.UI.Toggle() else ns.HUD.Toggle() end
+            -- left: the quick bar, shift + left: the session window, right: the settings
+            if button == "RightButton" then ns.Settings.Toggle()
+            elseif IsShiftKeyDown() then ns.HUD.Toggle()
+            else ns.QuickBar.Toggle() end
         end,
         OnTooltipShow = function(tooltip)
-            tooltip:AddLine(L["Kills & Loot"], 1, 0.85, 0.4)
-            tooltip:AddLine(L["Click: session overlay, right-click: journal"], 0.8, 0.8, 0.8)
+            tooltip:AddLine(L["Forever Companion"], 1, 0.85, 0.4)
+            tooltip:AddLine(" ")
+            -- the quick openers: the click on the left (gold), what it opens on the right
+            for _, e in ipairs({ { L["Click"], L["Quick bar"] }, { L["Shift + click"], L["Kills & Loot"] }, { L["Right-click"], L["Settings"] } }) do
+                tooltip:AddDoubleLine(e[1], e[2], 1, 0.82, 0.2, 1, 1, 1)
+            end
         end,
     })
-    icon:Register("ForeverCodex", object, ns.db.minimap)
+    icon:Register("ForeverCompanion", object, ns.db.minimap)
 end)

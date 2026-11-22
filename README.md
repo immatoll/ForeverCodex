@@ -1,6 +1,6 @@
-# Forever Codex
+# Forever Companion
 
-<img src="Media/logo.png" alt="Forever Codex logo" width="128" align="right">
+<img src="Media/logo.png" alt="Forever Companion logo" width="128" align="right">
 
 An all-in-one companion suite for **WoW Forever** (Classic-era client, Interface 16001). It logs what you
 kill and loot, values it, shows it on a map, and keeps track of all your characters, in one gilded-brown
@@ -31,7 +31,7 @@ interface.
 ## Installation
 
 1. Download a release ZIP (or clone this repository).
-2. Make sure the folder is named exactly `ForeverCodex` and sits in
+2. Make sure the folder is named exactly `ForeverCompanion` and sits in
    `World of Warcraft\<version>\Interface\AddOns\`.
 3. Restart the game (a `/reload` is not enough for a new addon).
 
@@ -51,7 +51,7 @@ Window corners can be dragged to resize. Ctrl scales, Shift keeps proportions, r
 ## Upgrading from ForeverKillLog
 
 Close the game, then copy
-`WTF\Account\<ACCOUNT>\SavedVariables\ForeverKillLog.lua` to `ForeverCodex.lua` in the same folder. The addon
+`WTF\Account\<ACCOUNT>\SavedVariables\ForeverKillLog.lua` to `ForeverCompanion.lua` in the same folder. The addon
 takes the old data over on first load. The old `/fkl` commands keep working.
 
 ## Notes

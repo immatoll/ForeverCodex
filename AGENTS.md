@@ -1,4 +1,4 @@
-# Forever Codex – Projektleitfaden für Agents und Mitwirkende
+# Forever Companion – Projektleitfaden für Agents und Mitwirkende
 
 > **Zuerst lesen, zuletzt aktualisieren.** Diese Datei ist das Gedächtnis des Projekts. Lies sie vor jeder
 > Änderung. Wenn sich Struktur, Konventionen, Slash-Befehle, Saved-Variables oder Entscheidungen ändern,
@@ -13,8 +13,8 @@ die Übernahme alter Daten). Es zeichnet Kills und Beute pro Quelle auf und bewe
 Account-Fenster (Altoholic-artig), Einstellungsfenster, Tooltips, eigener Auktionshaus-Scan, Routen und
 Benachrichtigungen. Optik: „vergoldetes Braun“. Sprachen: Englisch (Quelltext) und Deutsch (Locale).
 
-Der Ordner liegt direkt unter `Interface\AddOns\ForeverCodex\`. Saved Variables: `ForeverCodexDB`
-(Datei `WTF\Account\<KONTO>\SavedVariables\ForeverCodex.lua`, also nie im Repo). Der Dateiname dort richtet
+Der Ordner liegt direkt unter `Interface\AddOns\ForeverCompanion\`. Saved Variables: `ForeverCompanionDB`
+(Datei `WTF\Account\<KONTO>\SavedVariables\ForeverCompanion.lua`, also nie im Repo). Der Dateiname dort richtet
 sich nach dem Ordnernamen.
 
 ## Arbeitsregeln
@@ -32,7 +32,7 @@ sich nach dem Ordnernamen.
 
 ## Dateien und Ladereihenfolge
 
-Die Reihenfolge steht in `ForeverCodex.toc` und ist wichtig. Neue Dateien dort eintragen.
+Die Reihenfolge steht in `ForeverCompanion.toc` und ist wichtig. Neue Dateien dort eintragen.
 
 | Datei | Aufgabe |
 |---|---|
@@ -42,9 +42,14 @@ Die Reihenfolge steht in `ForeverCodex.toc` und ist wichtig. Neue Dateien dort e
 | `Core.lua` | Events, Loot-Erfassung, Quellen, Datenbank, Slash-Befehle (`/fc`), Debug |
 | `Account.lua` | Datenschicht pro Charakter (`ns.Acc`): Ausrüstung, Taschen, Bank, Post, Berufe, Rezepte, AH |
 | `AuctionScan.lua` | Eigener AH-Scan, Preisverlauf (`ns.AH`) |
-| `AuctionTab.lua` | Reiter „Codex“ im Auktionshaus: Listen (Alle/Deine Gegenstände/Rezepte/Trends), Filterspalte, Übergänge; `Build` hat fast das Upvalue-Limit |
-| `Theme.lua` | Zentrale Layout-Maße je Fenstergruppe (`ns.Theme.Get(gruppe, schlüssel)`, Überschreibungen in `ForeverCodexDB.theme`), Entwicklerfenster `/fctheme`. Bisher nur Gruppe `hud` (Kills & Loot) |
+| `AuctionTab.lua` | Reiter „Companion“ im Auktionshaus: Listen (Alle/Deine Gegenstände/Rezepte/Trends), Filterspalte, Übergänge; `Build` hat fast das Upvalue-Limit |
+| `Theme.lua` | Zentrale Layout-Maße je Fenstergruppe (`ns.Theme.Get(gruppe, schlüssel)`, Überschreibungen in `ForeverCompanionDB.theme`), Entwicklerfenster `/fctheme`. Bisher nur Gruppe `hud` (Kills & Loot) |
 | `BgPicker.lua` | Entwicklerwerkzeug `/fcbg`: Galerie der Blizzard-Hintergründe/Icons mit Testfenster |
+| `AuctionSell.lua` | Verkaufs-Panel unter einer Zeile der Ansicht „Verkauf“: günstigste 10 Angebote (C_AuctionHouse.SendSearchQuery), Preis (günstigster −1 Kupfer), Menge, Dauer, Einstellen (PostCommodity/PostItem). Nur im Spiel prüfbar, API-Annahmen: Commodity- und Item-Suchergebnisse |
+| `AuctionBuy.lua` | Kauf-Panel (Markt/Trends/Übersicht-Listen): günstigste Angebote, Menge, Kosten über die Angebote, Kaufen in zwei Schritten (StartCommoditiesPurchase → Preis → ConfirmCommoditiesPurchase; Einzelgegenstände: PlaceBid mit Sofortkauf). Nur im Spiel prüfbar |
+| `AuctionCraft.lua` | Herstellen-Panel (Klick auf ein Rezept in „Herstellen“): Materialien für n Herstellungen, was die gewählten Charaktere haben, was fehlt, Kosten, Kaufen-Knopf je Material (öffnet das Kauf-Panel mit der Fehlmenge). Erster Test |
+| `AuctionShop.lua` | Einkaufsliste (Ansicht „shop“ des Auktionshaus-Reiters, eine Seite wie die Übersicht): Gegenstände mit Menge in `ns.db.ahShop`, `ns.AuctionShop.Add/Set/Remove/Clear`; Hinzufügen aus Kauf-Panel, Rezept-Panel und Zeilenmenü; Kaufen öffnet das Kauf-Panel |
+| `AuctionOwn.lua` | Seite „Meine Auktionen“ des Auktionshaus-Reiters: im Angebot (alle Charaktere, aus Account.lua) und Verlauf (`ns.db.ahHistory`, von Account.lua beim Verschwinden einer Auktion vermerkt: verkauft/abgelaufen/abgebrochen); `O.Spent` vermerkt Käufe (`ns.db.ahSpent`) für die Übersicht |
 | `ItemInfo.lua` | Kleines Fenster zu einem Gegenstand (Rechtsklick-Menü im AH-Reiter): Berufs-Tabs, Rezeptzeilen (UI.NewListView), welche Charaktere das Rezept kennen |
 | `AuctionDashboard.lua` | Erste Seite des Reiters: Vermögen, sehenswerte Taschen-Gegenstände, Markt (günstig/steigend), lohnende Rezepte |
 | `Data\Recipes.lua`, `Data\Disenchant.lua` | Erzeugt von `toolsuild_recipes.py` / `toolsuild_disenchant.py` (Quellen: wago.tools, DisenchantBuddy) |
@@ -54,16 +59,16 @@ Die Reihenfolge steht in `ForeverCodex.toc` und ist wichtig. Neue Dateien dort e
 | `Data\MapOverlays.lua` | Kartendaten |
 | `MapView.lua` | Kartenansicht, Marker (Teile, Badge), `ns.MapData` |
 | `UI.lua`, `SessionHUD.lua` | Hauptfenster-Gerüst, Sitzungs-HUD („Kills & Loot“) |
-| `Page*.lua` | Journal-Seiten (Quellen, Beute, Suche, Verlauf, Statistik) |
+| `Page*.lua` | Journal-Seiten (Quellen mit Suche über Namen **und Beute**, Gegenstandssuche, Verlauf, Statistik; die Seite „Beute“ ist entfernt) |
 | `Routes.lua`, `Spots.lua` | Routen und Fundorte |
 | `MapMain.lua`, `MapWindow.lua` | Kartenfenster (`/fcmap`), Mini-Karte (`/fcmini`) |
 | `AccountWindow.lua` | Account-Fenster (`/fcaccount`, `/fcalts`), sehr groß |
-| `SettingsWindow.lua` | Einstellungen (`/fcsettings`) mit Kategorien und Beschreibungen |
+| `SettingsWindow.lua` | Einstellungen (`/fcsettings`): Gruppen links (GROUPS) mit Zählbadge, Seiten aus Karten (Heading beginnt Karte), Suche über alle Optionen (virtuelle Seite `search`), `def` an Toggle/Choice = Standardwert für Badge und „Diese Seite zurücksetzen“ |
 | `Minimap.lua` | Minimap-Knopf |
 | `Media\` | Logo (`logo.tga` 256 px, `logo64.tga` für die Minimap, `logo.png` fürs README, mit Alpha), Konzeptbilder in `Media\concepts\` (Icons für später). Erzeugt mit `tools\make_addon_logo.py` und `tools\cut_concepts.py` aus den Konzeptblättern; `tools\make_logo.py` ist die erste selbstgezeichnete Idee (`Media\drawn*`) |
 | `tools\` | Hilfsskripte außerhalb des Spiels (nicht im `.toc`) |
 
-Alle Dateien teilen `local ADDON, ns = ...`. Es gibt keine globale API außer `ForeverCodexDB` und den
+Alle Dateien teilen `local ADDON, ns = ...`. Es gibt keine globale API außer `ForeverCompanionDB` und den
 Slash-Befehlen.
 
 ## Konventionen (wichtig, sonst bricht das Addon)
@@ -100,7 +105,7 @@ Slash-Befehlen.
 
 ## Daten und Migration
 
-- `ForeverCodexDB` hat `DB_VERSION` (siehe `Core.lua`). `InitDB` übernimmt einmalig die Daten der alten
+- `ForeverCompanionDB` hat `DB_VERSION` (siehe `Core.lua`). `InitDB` übernimmt einmalig die Daten der alten
   Variable `ForeverKillLogDB` (`.toc` listet beide Namen). Diese Übernahme nicht entfernen, solange alte
   Spielstände existieren können. Wer das Format ändert, schreibt eine
   Migration und erhöht die Version. Alte Daten dürfen nie stillschweigend verloren gehen.
@@ -135,25 +140,26 @@ Slash-Befehlen.
 
 - **Fenster-Design festlegen (offen, Nutzer macht es später):** Mit `/fcbg` (Hintergrund, Icon, Layout, Deckkraft je Fenster) und `/fctheme` (Layout-Maße Kills & Loot) ausprobieren, dann `/fctheme` → „Export“ und den Text in `Theme.lua` (`T.defaults`, `T.skins`, `T.design`) eintragen. `W.SkinOf` liest diese Standards bereits. Panel-Transparenz (`settings.panelAlpha`) steht nicht im Export.
 - **Blizzard-Stil, Kopfbereich (bestätigt am Kills-&-Beute-Fenster, `SessionHUD.lua`):** Der Rahmen steht 54 über dem Fenster, die Titelleiste liegt bei y +54 bis +28, der Streifen darunter ab y +24 und rechts vom Ring ab x 56 ist nutzbar (dort: drei kompakte Statuskarten, Pause/Beenden gestapelt rechts). Dasselbe soll für die anderen Fenster (Account, Karte, Einstellungen, Journal) versucht werden; Inhalte entsprechend nach oben ziehen. Das Layout wird beim Laden über `ns.AfterLoad` festgelegt.
-- Kills & Beute: Tabs Regionboard und Route sind nicht mehr im Fenster (Code in `SessionHUD.lua` liegt brach). Die Route soll bei Bedarf als eigenes Fenster ausgegliedert werden.
+- Beutezug (früher Kills & Beute; englischer Schlüssel bleibt `L["Kills & Loot"]`, deutscher Name „Beutezug“): Tabs Regionboard und Route sind nicht mehr im Fenster (Code in `SessionHUD.lua` liegt brach). Die Route soll bei Bedarf als eigenes Fenster ausgegliedert werden.
+- Auktionshaus-Seite (`panel` in AuctionTab.lua) kann im Auktionshaus-Reiter oder im eigenen Fenster (`/fcah`, `ns.AuctionWindow`, Fenster-Menü am runden Icon) liegen; `T.PlacePanel(host)` dockt sie um (Eltern, Ankerpunkte, Frame-Ebenen). Kaufen/Verkaufen/Preise prüfen brauchen das offene Auktionshaus.
 - Vertagt: Live-Bearbeiten-Modus für Layout-Maße (Umbau SessionHUD), Schrift/Farben im Theme, gleiche Tabellenlayouts überall, Journal komplett neu gestalten.
 
 ## Arbeitsablauf mit Git/GitHub (Empfehlung)
 
 **Eine Kopie, kein Doppelleben:** Das Repo liegt direkt im Addon-Ordner
-(`...\AddOns\ForeverCodex\`, dort `git init`). Der Ordner ist der Arbeitsstand, den das Spiel lädt. Mit
-`/reload` testet man sofort, ohne zu kopieren oder zu verlinken. Der Ordnername muss `ForeverCodex`
+(`...\AddOns\ForeverCompanion\`, dort `git init`). Der Ordner ist der Arbeitsstand, den das Spiel lädt. Mit
+`/reload` testet man sofort, ohne zu kopieren oder zu verlinken. Der Ordnername muss `ForeverCompanion`
 bleiben (gleich dem `.toc`-Namen, sonst lädt das Spiel das Addon nicht).
 
 - **`main`** ist stabil. Entwickelt wird auf Zweigen (`feature/...`, `fix/...`) oder direkt auf einem
   `dev`-Zweig. Zurück auf `main` wechselt man erst, wenn es im Spiel getestet ist. Ein Zweigwechsel
   ändert die Dateien im Ordner, was das Spiel beim nächsten `/reload` lädt.
 - **„Produktiv“ vs. „Testen“:** Wer mit einer stabilen Version spielen und gleichzeitig testen will, legt
-  einen zweiten Ordner an: `git worktree add ..\ForeverCodex_dev dev`. Dessen `.toc` müsste dann
+  einen zweiten Ordner an: `git worktree add ..\ForeverCompanion_dev dev`. Dessen `.toc` müsste dann
   anders heißen, daher ist das nur für Gelegenheiten nötig. Im Normalfall: stabil = Tag, Test = Zweig.
 - **Releases:** Version im `.toc` (`## Version:`) erhöhen, Tag `vX.Y.Z` setzen, ZIP bauen, dessen oberster
-  Ordner `ForeverCodex/` heißt. GitHubs automatisches „Source code (zip)“ hat den falschen Ordnernamen
-  (`ForeverCodex-main`). Dafür eine GitHub Action oder den BigWigs-Packager verwenden, der den
+  Ordner `ForeverCompanion/` heißt. GitHubs automatisches „Source code (zip)“ hat den falschen Ordnernamen
+  (`ForeverCompanion-main`). Dafür eine GitHub Action oder den BigWigs-Packager verwenden, der den
   Ordnernamen korrekt setzt (`.pkgmeta`).
 - **Commits** klein und thematisch, Nachrichten auf Englisch oder Deutsch, aber einheitlich.
 - `.gitignore` (vor dem ersten Push anlegen): `*.bak`, `*.tmp`, `*.zip`, `.vscode/`, `.claude/`,
@@ -177,3 +183,11 @@ Aktualisiere diese Datei im selben Schritt, wenn du
 
 Kurz halten: nur das, was man sonst jedes Mal neu herausfinden müsste. Keine Chronik, dafür gibt es
 die Git-Historie.
+
+- **Fensterstil:** Es gibt nur noch den Blizzard-Stil (Stand 2026-11-22). Die Zweige `ornate`/`plain` in den `ApplyFrameStyle`-Funktionen sind per `false`/`true` fest verdrahtet und toter Code; die Option „Window style“ ist entfernt.
+- **Tooltip-Einstellungen:** eigene Gruppe „Tooltips“ mit Seiten Allgemein/Gegenstände/Kreaturen; oben eine Vorschau (`ns.TipPreview` in Tooltip.lua, erfundene Beispieldaten, nutzt dieselben `ns.TipOn`-Schalter). Neue Tooltip-Zeile = in `ItemLines`/`MobLines` **und** in `SampleItemLines`/`SampleMobLines` eintragen.
+- **Vorkommen-Tooltip:** `OnObject`/`NodeLines` in Tooltip.lua (Kräuter/Erz/Objekte, Quelle `ns.db.mobs["herb:Name"]`, nur bereits gesammelte); Optionen `nodeVisited/nodeGathered/nodeDrops`, Vorschau-Art `node`. Hook über `Enum.TooltipDataType.Object` bzw. Fallback `OnShow` — im Spiel noch nicht geprüft.
+- **Kopfstreifen (Blizzard-Stil):** Journal (`UI.lua`: Seite ab AREA_TOP -24, **kein Kopfband und kein Minimieren-Knopf mehr**), Karte (`MapMain.lua` BAR_TOP -24/BAR_LEFT 56) und Account (`AccountWindow.lua` BAR_TOP -24) nutzen den Streifen unter der Titelleiste neben dem Ring; Inhalt beginnt direkt darunter.
+- **Referenzdaten Auktionshaus:** `Data/AuctionSeed.lua` (erzeugt aus dem Konto des Autors, Realm CAMWOW EU4 Realm 3 PvE-Horde, Stand 2026-11-22, ca. 1,2 MB) wird beim ersten Start als Datenbestand des Spielers geladen (`Seed` in AuctionScan.lua, einmalig über `db.ahSeeded`), `store.seeded = true` bis zum ersten eigenen Scan (`AH.Seeded()`; der Tooltip-Hinweis „Besuche das Auktionshaus“ bleibt solange). Neu erzeugen: Skript im Scratchpad `seed.py` (liest ForeverCompanion.lua aus WTF).
+- **Schnellleiste:** `QuickBar.lua` (`/fcbar`, `ns.QuickBar.Toggle`): kleine verschiebbare Knopfleiste für die Fenster; Linksklick auf das Minimap-Symbol öffnet sie, Umschalt+Links = Kills & Loot, Rechts = Einstellungen. Position/Ausrichtung/Sichtbarkeit in `ns.db.quickBar`. Neues Fenster = in `Windows()` eintragen.
+- **Umbenennung (2026-11-22):** Aus „Forever Codex“ wurde „Forever Companion“. Neu: Ordner/`.toc` `ForeverCompanion`, SavedVariables `ForeverCompanionDB` (Datei `WTF\Account\<KONTO>\SavedVariables\ForeverCompanion.lua`; die alte `ForeverCodex.lua` ist nur noch eine Sicherung), Framenamen `ForeverCompanion*`, Slash-Namen `FOREVERCOMPANION*`, Chat-Präfix, Reiter im Auktionshaus „Companion“. Slash-Befehle `/fc…` bleiben (passt zu beiden Namen), `/companion` und `/codex` öffnen beide. Die Einstellung `ahOpenCodex` behielt ihren Namen (nur intern). Das Skript `..inish-rename.ps1` (im AddOns-Ordner, einmalig) benennt den Ordner um und wandelt die Daten neu um, sobald das Spiel beendet ist. GitHub: Repo auf github.com umbenennen, dann `git remote set-url origin https://github.com/immatoll/ForeverCompanion.git`.

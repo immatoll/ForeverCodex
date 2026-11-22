@@ -85,11 +85,28 @@ local function Mend(db)
     end
 end
 
+-- Reference data (Data/AuctionSeed.lua) become the store of the player once, on the first start, when there is none of their own yet:
+-- so that prices and trends can be tried out before the first scan. The first scan replaces them (store.seeded is then gone).
+local function Seed(db)
+    local seed = ns.AuctionSeed
+    if db.ahSeeded or not seed then return end
+    local key = Key()
+    if key:find("?", 1, true) or db.ahData[key] then return end -- (the realm or faction is not known yet: later)
+    db.ahSeeded = true
+    local prices, hist, n = {}, {}, 0
+    for id, p in pairs(seed.prices) do prices[id] = p; n = n + 1 end
+    for id, e in pairs(seed.hist or {}) do
+        hist[id] = { t = { unpack(e.t) }, p = { unpack(e.p) }, q = { unpack(e.q) } }
+    end
+    db.ahData[key] = { prices = prices, time = seed.time, count = n, hist = hist, seeded = true }
+end
+
 local function Store()
     local db = ns.db
     if not db then return nil end
     db.ahData = db.ahData or {}
     Mend(db)
+    Seed(db)
     return db.ahData[Key()]
 end
 
@@ -98,9 +115,22 @@ function AH.Price(id)
     local s = Store()
     return s and s.prices and s.prices[id] or nil
 end
+-- A price that was seen on the auction house just now (a look at one item): the stored price of the last scan is replaced by it. True when it
+-- was another price than before.
+function AH.Observe(id, price)
+    local st = Store()
+    if not (st and st.prices and price and price > 0) or st.prices[id] == price then return false end
+    st.prices[id] = price
+    return true
+end
 function AH.Time()
     local s = Store()
     return s and s.time or nil
+end
+-- true while the data are the reference data that came with the addon (no scan of the player yet)
+function AH.Seeded()
+    local s = Store()
+    return s and s.seeded == true or false
 end
 function AH.IsOpen() return isOpen end
 
@@ -341,7 +371,7 @@ local function Finish()
     end
     ns.db.ahData[Key()] = { prices = prices, time = time(), count = items, hist = hist }
     job = nil
-    print("|cffffd100ForeverCodex:|r " .. L["Auction scan done: %d items."]:format(items))
+    print("|cffffd100ForeverCompanion:|r " .. L["Auction scan done: %d items."]:format(items))
     ns.Value.Reset()
     ns.Refresh()
 end
@@ -412,7 +442,7 @@ function AH.Scan()
     C_Timer.After(30, function()
         if waiting and scanToken == mine then
             waiting = nil
-            print("|cffffd100ForeverCodex:|r " .. L["No answer from the auction house. It limits full scans; try again in a few minutes."])
+            print("|cffffd100ForeverCompanion:|r " .. L["No answer from the auction house. It limits full scans; try again in a few minutes."])
         end
     end)
     return true
@@ -430,7 +460,7 @@ local function Noticed(kind)
     local mine = kind .. GetTime()
     scanToken = mine
     C_Timer.After(30, function() if waiting and scanToken == mine then waiting = nil end end)
-    print("|cffffd100ForeverCodex:|r " .. L["Another addon is reading the auction house: reading along."])
+    print("|cffffd100ForeverCompanion:|r " .. L["Another addon is reading the auction house: reading along."])
 end
 if C_AuctionHouse and C_AuctionHouse.ReplicateItems then
     hooksecurefunc(C_AuctionHouse, "ReplicateItems", function() Noticed("modern") end)

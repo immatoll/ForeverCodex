@@ -542,17 +542,45 @@ function W.BlizzSkin(f, on, icon, titleText, key)
         d:SetPoint("TOPRIGHT", b, "TOPRIGHT", 0, 0)
         d:SetHeight(26)
         d:EnableMouse(true)
-        d:RegisterForDrag("LeftButton")
-        d:SetScript("OnDragStart", function() f:StartMoving() end)
-        d:SetScript("OnDragStop", function()
-            local fn = f:GetScript("OnDragStop")
-            if fn then fn(f) else f:StopMovingOrSizing() end
+        d:SetScript("OnMouseDown", function(_, button)
+            if button ~= "LeftButton" then return end
+            W.StartDrag(f, function()
+                local fn = f:GetScript("OnDragStop")
+                if fn then fn(f) else f:StopMovingOrSizing() end
+            end)
         end)
         f.blizzDrag = d
     end
     f.blizzDrag:Show()
     f:RegisterForDrag()
     return true
+end
+
+-- Moving a window by hand: the game's own drag (RegisterForDrag) only starts once the mouse has moved a few pixels from where it was
+-- pressed, which feels like a dead zone. Here the window follows the cursor from the first pixel: the press starts it (W.StartDrag from an
+-- OnMouseDown), the release ends it (stop: called then; the window's own OnDragStop, which keeps the place, is a good one).
+local dragDriver = CreateFrame("Frame")
+dragDriver:Hide()
+function W.StartDrag(f, stop)
+    local scale = f:GetEffectiveScale()
+    local left, top = f:GetLeft(), f:GetTop()
+    if not (left and top) then return end
+    local cx, cy = GetCursorPosition()
+    local ox, oy = left - cx / scale, top - cy / scale
+    f.fcMoving = true
+    dragDriver:Show()
+    dragDriver:SetScript("OnUpdate", function()
+        if not IsMouseButtonDown("LeftButton") then
+            dragDriver:Hide()
+            dragDriver:SetScript("OnUpdate", nil)
+            f.fcMoving = nil
+            if stop then stop(f) end
+            return
+        end
+        local x, y = GetCursorPosition()
+        f:ClearAllPoints()
+        f:SetPoint("TOPLEFT", UIParent, "BOTTOMLEFT", x / scale + ox, y / scale + oy)
+    end)
 end
 
 -- The rows of the menu of the windows (the round icon of a window in the Blizzard style opens it): every other window of the addon.
@@ -564,6 +592,7 @@ function W.WindowMenuRows(f)
         { "map", L["Loot map"], W.ICON.map, function() if ns.MapMain then ns.MapMain.Toggle() end end },
         { "mini", L["Mini map"], "Interface\\Icons\\INV_Misc_Spyglass_02", function() if ns.MapWindow then ns.MapWindow.Toggle() end end },
         { "account", L["Account"], W.ICON.account, function() if ns.AccountWindow then ns.AccountWindow.Toggle() end end },
+        { "ah", L["Auction house"], W.ICON.coin, function() if ns.AuctionWindow then ns.AuctionWindow.Toggle() end end },
         { "settings", L["Settings"], W.ICON.settings, function() if ns.Settings then ns.Settings.Toggle() end end },
     }
     -- the windows of the addon, then the subwindows of one (indented under it), then what is for everything (apart)
@@ -590,6 +619,35 @@ function W.SkinSyncMinimized(f, minimized)
     mm.syncing = true
     if minimized then pcall(mm.Minimize, mm) else pcall(mm.Maximize, mm) end
     mm.syncing = false
+end
+
+-- Name, rarity and picture of an item by its number. The names are kept in the saved variables (the list of the auction house tab fills it): the
+-- game's own answer comes and goes (an item it has not got in its memory for the moment gives nothing, and the name would turn into "item:123"
+-- and back), so the kept name is taken first; an item that is not kept yet is asked for and kept as soon as the game gives it.
+function W.ItemData(id)
+    local db = ns.db
+    local cache = db and db.itemCache
+    local name, quality
+    local hit = cache and cache[id]
+    if type(hit) == "string" and hit:sub(1, 1) ~= "x" then
+        local _, q, _, nm = hit:match("^(%d+)|(%d+)|(%d+)|(.*)$")
+        if nm then name, quality = nm, tonumber(q) end
+    end
+    local Info = GetItemInfo or (C_Item and C_Item.GetItemInfo)
+    local icon
+    if not name and Info then
+        local n, _, q, _, lvl, _, _, _, _, ic, sell = Info(id)
+        if n then
+            name, quality, icon = n, q or 1, ic
+            if cache and cache.lang == GetLocale() and cache.fmt == 3 then
+                cache[id] = (sell or 0) .. "|" .. (q or 1) .. "|" .. (lvl or 0) .. "|" .. n
+            end
+        elseif C_Item and C_Item.RequestLoadItemDataByID then
+            pcall(C_Item.RequestLoadItemDataByID, id)
+        end
+    end
+    icon = icon or (C_Item and C_Item.GetItemIconByID and C_Item.GetItemIconByID(id)) or nil
+    return name, quality, icon
 end
 
 function W.GlowTexture(parent)
@@ -651,7 +709,8 @@ local function ApplyIconButton(b, v)
     local k = math.max(v, b.active and 1 or 0)
     b.glow:SetAlpha(v * 0.55 + (b.active and 0.25 or 0))
     b:SetBackdropBorderColor(LerpColor(C.goldDim, C.gold, b.noActiveBorder and v or k))
-    b.icon:SetAlpha(0.6 + 0.4 * k)
+    local base = b.iconBase or 0.6 -- (the picture at rest; a button can set a brighter one)
+    b.icon:SetAlpha(base + (1 - base) * k)
 end
 
 function W.NewIconButton(parent, texture, size)
@@ -1655,7 +1714,7 @@ function W.Dump(path)
 end
 
 -- /fcdump <name of a frame, e.g. PlayerSpellsFrame.TalentsFrame.Background>: its textures and child frames, in a window to copy from
-SLASH_FOREVERCODEXDUMP1 = "/fcdump"
-SlashCmdList.FOREVERCODEXDUMP = function(path)
+SLASH_FOREVERCOMPANIONDUMP1 = "/fcdump"
+SlashCmdList.FOREVERCOMPANIONDUMP = function(path)
     W.Console(W.Dump(path), "fcdump " .. tostring(path))
 end

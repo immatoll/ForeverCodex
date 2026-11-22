@@ -512,7 +512,7 @@ UI.AddPage({ id = "routes", label = L["Routes"], icon = "Interface\\Icons\\INV_M
             if not route then return end
             local mapID, x, y = PlayerPos()
             if not mapID then
-                print("|cffffd100ForeverCodex:|r " .. L["No position available here."])
+                print("|cffffd100ForeverCompanion:|r " .. L["No position available here."])
                 return
             end
             local zone = GetZoneText()

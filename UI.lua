@@ -4,8 +4,7 @@ local W = ns.W
 local C = W.C
 local Ease, CancelEase, CurrentEase, LerpColor, Hex = W.Ease, W.CancelEase, W.CurrentEase, W.LerpColor, W.Hex
 
--- The journal: ornate frame, bookmark rail on the left, a header band with the
--- session numbers, and one page at a time. List pages are two-page spreads
+-- The journal: bookmark rail on the left and one page at a time. List pages are two-page spreads
 -- (list on the left, the selected entry on the right).
 
 local UI = { pages = {}, order = {}, listviews = {} }
@@ -13,9 +12,9 @@ ns.UI = UI
 
 local WIDTH, HEIGHT = 800, 566
 local PAD = 18
-local HEAD_TOP, HEAD_H = 36, 54
 local RAIL_W = 46
-local AREA_X, AREA_TOP = PAD + RAIL_W + 10, 104
+local AREA_X, AREA_TOP = PAD + RAIL_W + 10, -24 -- (the page begins in the strip under the title bar, right of the ring)
+local RAIL_TOP = 14 -- (the rail starts below the ring)
 UI.AREA_W = WIDTH - AREA_X - PAD
 UI.AREA_H = HEIGHT - AREA_TOP - 18
 
@@ -34,7 +33,7 @@ function UI.Dirty() dirty = true end
 
 -- Main frame ------------------------------------------------------------
 
-local main = CreateFrame("Frame", "ForeverCodexFrame", UIParent, W.TEMPLATE)
+local main = CreateFrame("Frame", "ForeverCompanionFrame", UIParent, W.TEMPLATE)
 UI.frame = main
 main:SetSize(WIDTH, HEIGHT)
 main:SetPoint("CENTER")
@@ -46,7 +45,7 @@ main:EnableMouse(true)
 main:RegisterForDrag("LeftButton")
 main:Hide()
 main:SetBackdrop(FRAME_BACKDROP)
-tinsert(UISpecialFrames, "ForeverCodexFrame")
+tinsert(UISpecialFrames, "ForeverCompanionFrame")
 
 local face = main:CreateTexture(nil, "BACKGROUND", nil, 1)
 face:SetPoint("TOPLEFT", 8, -8)
@@ -65,14 +64,14 @@ banner:SetTexture("Interface\\DialogFrame\\UI-DialogBox-Header")
 banner:SetSize(300, 64)
 banner:SetPoint("TOP", 0, 12)
 
-local titleFont = CreateFont("ForeverCodexTitleFont")
+local titleFont = CreateFont("ForeverCompanionTitleFont")
 local fancy = titleFont:SetFont("Fonts\\MORPHEUS.TTF", 16, "")
 local title = main:CreateFontString(nil, "OVERLAY")
 UI.titleFontObject = fancy and titleFont or "GameFontNormalLarge"
 
 -- The banner's title: the regular heading face, a little smaller than before, with a thin outline
 -- and a shadow so it holds its own on the plate (the plate's upper part reaches over the frame).
-local bannerFont = CreateFont("ForeverCodexBannerFont")
+local bannerFont = CreateFont("ForeverCompanionBannerFont")
 if not bannerFont:SetFont("Fonts\\FRIZQT__.TTF", 15, "OUTLINE") then
     bannerFont:CopyFontObject(_G.GameFontNormalLarge)
 end
@@ -89,8 +88,8 @@ title:SetTextColor(1, 0.85, 0.4)
 -- Frame style (settings): "ornate" is the dialog frame with the hanging banner,
 -- "plain" a slim gilded plate. The session overlay follows the same setting.
 function UI.ApplyFrameStyle()
-    local ornate = (ns.db and ns.db.settings.frameStyle or "ornate") == "ornate"
-    local blizz = W.BlizzSkin(main, (ns.db and ns.db.settings.frameStyle or "ornate") == "blizzard", W.ICON.journal, title:GetText(), "journal")
+    local ornate = false
+    local blizz = W.BlizzSkin(main, true, W.ICON.journal, title:GetText(), "journal")
     title:SetAlpha(blizz and 0 or 1) -- (the frame's own title is shown instead)
     if ornate then
         main:SetBackdrop(FRAME_BACKDROP)
@@ -142,8 +141,6 @@ W.AttachScaleGrip(main, jgrip, {
 local opacityBtn = W.NewOpacityButton(main, "journal", main, 22)
 opacityBtn:SetPoint("RIGHT", close, "LEFT", -4, 0)
 main.opacityBtn = opacityBtn
-local minimize = W.NewButton(main, "–", 22, 22, "GameFontNormalLarge")
-minimize:SetPoint("RIGHT", opacityBtn, "LEFT", -4, 0)
 
 -- switch to the quiet session overlay
 local hudBtn = W.NewIconButton(main, W.ICON.session, 24)
@@ -170,70 +167,6 @@ main:SetScript("OnShow", function(self)
     W.FadeWindowParts(self, W.WindowAlpha("journal"))
     self:SetAlpha(0)
 end)
-
--- Header band -----------------------------------------------------------
-
-local head = CreateFrame("Frame", nil, main)
-head:SetPoint("TOPLEFT", PAD, -HEAD_TOP)
-head:SetPoint("TOPRIGHT", -PAD, -HEAD_TOP)
-head:SetHeight(HEAD_H)
-
-local CLEAR_W = 26
-local CARD_W = (WIDTH - 2 * PAD - CLEAR_W - 18) / 3
-local cards = {}
-for i = 1, 3 do
-    local card = W.NewStatCard(head, W.STAT_ICONS[i], W.StatCardTip(i))
-    card:SetSize(CARD_W, HEAD_H)
-    card:SetPoint("TOPLEFT", (i - 1) * (CARD_W + 6), 0)
-    cards[i] = card
-end
-
-local pauseBtn = W.NewIconButton(head, W.ICON.pause, CLEAR_W)
-pauseBtn:SetPoint("TOPRIGHT", 0, 0)
-pauseBtn:SetScript("OnClick", function() ns.TogglePause() end)
-local endBtn = W.NewIconButton(head, W.ICON.clear, CLEAR_W)
-endBtn:SetPoint("BOTTOMRIGHT", 0, 0)
-endBtn:SetTip(L["End session"], L["Saves the session to the history. The lists start empty and a new session begins with your next loot."])
-endBtn:SetScript("OnClick", function()
-    ns.EndSession()
-    print("|cffffd100ForeverCodex:|r " .. L["Session ended."])
-end)
-
--- While the session window is open it already shows these numbers, so the band shows
--- the current page instead; close the window and the numbers return.
-local info = W.NewPlate(head, C.page)
-info:SetAllPoints()
-info.icon = info:CreateTexture(nil, "ARTWORK")
-info.icon:SetSize(32, 32)
-info.icon:SetPoint("LEFT", 12, 0)
-info.icon:SetTexCoord(0.07, 0.93, 0.07, 0.93)
-info.label = info:CreateFontString(nil, "OVERLAY")
-info.label:SetFontObject(UI.titleFontObject)
-info.label:SetPoint("TOPLEFT", info.icon, "TOPRIGHT", 12, 1)
-info.label:SetTextColor(1, 0.88, 0.5)
-info.hint = info:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-info.hint:SetPoint("BOTTOMLEFT", info.icon, "BOTTOMRIGHT", 12, -1)
-info.hint:SetTextColor(unpack(C.muted))
-info:Hide()
-
-local function RefreshHeader(snap)
-    local hudOpen = ns.HUD and ns.HUD.frame and ns.HUD.frame:IsShown()
-    for _, card in ipairs(cards) do card:SetShown(not hudOpen) end
-    pauseBtn:SetShown(not hudOpen)
-    endBtn:SetShown(not hudOpen)
-    info:SetShown(hudOpen and true or false)
-    if hudOpen then
-        local def = UI.pages[UI.current]
-        if def then
-            info.icon:SetTexture(def.icon)
-            info.label:SetText(def.label)
-            info.hint:SetText(def.hint or "")
-        end
-    else
-        W.SyncPauseButton(pauseBtn)
-        W.UpdateStatCards(cards, snap)
-    end
-end
 
 -- Pages and the bookmark rail ---------------------------------------------
 
@@ -293,7 +226,7 @@ local function BuildRail()
         local def = UI.pages[id]
         local b = CreateFrame("Button", nil, main, W.TEMPLATE)
         b:SetSize(RAIL_W, RAIL_W)
-        b:SetPoint("TOPLEFT", PAD, -AREA_TOP - (i - 1) * step)
+        b:SetPoint("TOPLEFT", PAD, -RAIL_TOP - (i - 1) * step)
         b:SetBackdrop(W.PLATE_BACKDROP)
         b:SetBackdropColor(unpack(C.plate))
         b.glow = W.GlowTexture(b)
@@ -319,21 +252,6 @@ local function BuildRail()
         rail[id] = b
     end
 end
-
--- Minimize: roll the journal up to its header band
-minimize:SetScript("OnClick", function()
-    collapsed = not collapsed
-    area:SetShown(not collapsed)
-    for _, b in pairs(rail) do b:SetShown(not collapsed) end
-    if collapsed then
-        main.fullHeight = main:GetHeight()
-        main:SetHeight(HEAD_TOP + HEAD_H + 22)
-    else
-        main:SetHeight(main.fullHeight or HEIGHT)
-        dirty = true
-    end
-    minimize.text:SetText(collapsed and "+" or "–")
-end)
 
 -- List view: pooled rows, smooth scrolling, hover, selection, flash ----------
 
@@ -575,7 +493,6 @@ local function Render()
     end
     BuildRail()
     local snap = ns.BuildSnapshot()
-    RefreshHeader(snap)
     if not UI.current or not UI.pages[UI.current] then
         local want = ns.db.tab
         SelectPage(UI.pages[want] and want or UI.order[1])
@@ -587,6 +504,7 @@ end
 local acc = 0
 main:SetScript("OnUpdate", function(_, elapsed)
     W.Step(elapsed)
+    if main.fcMoving then return end -- (nothing is drawn again while the window is dragged: it follows the mouse without a hitch)
     acc = acc + elapsed
     if (dirty and acc > 0.05) or acc > 1 then
         acc, dirty = 0, false
@@ -602,9 +520,6 @@ function ns.Toggle() UI.Toggle() end
 -- jump to an entry of a page (used by the session overlay's rows)
 function UI.OpenEntry(pageId, key)
     if not main:IsShown() then main:Show() end
-    if collapsed then
-        minimize:Click()
-    end
     SelectPage(pageId)
     local def = UI.pages[pageId]
     if def and def.obj and def.obj.SetSel then def.obj.SetSel(key) end

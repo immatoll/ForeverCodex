@@ -24,7 +24,7 @@ end
 local function Auction(id)
     local api = Auctionator and Auctionator.API and Auctionator.API.v1
     if api and api.GetAuctionPriceByItemID then
-        local ok, price = pcall(api.GetAuctionPriceByItemID, "ForeverCodex", id)
+        local ok, price = pcall(api.GetAuctionPriceByItemID, "ForeverCompanion", id)
         if ok and price and price > 0 then return price end
     end
     return nil

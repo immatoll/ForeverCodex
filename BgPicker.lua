@@ -14,7 +14,7 @@ local idxOf = { bg = 0, icon = 0 }
 local bar, test
 local target = "all"                -- which window the choices are for: "all", or one of the windows (see TARGETS)
 local TARGETS = { { "all", "All windows", 96 }, { "hud", "Kills & Loot", 96 }, { "account", "Account", 66 }, { "map", "Map", 50 },
-    { "settings", "Settings", 66 }, { "journal", "Journal", 64 } }
+    { "settings", "Settings", 66 }, { "journal", "Journal", 64 }, { "ah", "Auction house", 96 } }
 local ALPHAS = { { "100%", 1 }, { "85%", 0.85 }, { "70%", 0.7 }, { "55%", 0.55 } }
 
 -- what is set for the chosen window (a layer of W.SkinOf, in ns.db.settings.skins)
@@ -59,7 +59,7 @@ local function Candidates()
     local others = OtherAddons()
     local function Foreign(gname)
         local n = gname:lower()
-        if n:find("^lib") or n:find("^ace") or n:find("^forevercodex") or n:find("^bugsack") or n:find("^_") then return true end
+        if n:find("^lib") or n:find("^ace") or n:find("^forevercompanion") or n:find("^bugsack") or n:find("^_") then return true end
         for _, o in ipairs(others) do if n:sub(1, #o) == o then return true end end
         return false
     end
@@ -153,7 +153,8 @@ end
 
 local function ApplyStyles()
     for _, fn in ipairs({ UI and UI.ApplyFrameStyle, ns.HUD and ns.HUD.ApplyFrameStyle, ns.MapMain and ns.MapMain.ApplyFrameStyle,
-        ns.AccountWindow and ns.AccountWindow.ApplyFrameStyle, ns.ItemInfo and ns.ItemInfo.ApplyFrameStyle, ApplyTest }) do
+        ns.AccountWindow and ns.AccountWindow.ApplyFrameStyle, ns.ItemInfo and ns.ItemInfo.ApplyFrameStyle,
+        ns.AuctionWindow and ns.AuctionWindow.ApplyFrameStyle, ApplyTest }) do
         pcall(fn)
     end
     if ns.Settings and ns.Settings.ApplyFrameStyle then pcall(ns.Settings.ApplyFrameStyle) end
@@ -241,11 +242,47 @@ local function Step(d)
     if row < top or row >= top + VISIBLE then top = math.max(0, row - 1); Render() end
 end
 
+-- what the chosen window has now (background / icon of the tab shown) is marked in the list, and the list is scrolled to it
+local function Sync()
+    if not list then return end
+    local sk = W.SkinOf(Key())
+    local kind, value
+    if tab == "bg" then
+        local spec = sk.spec
+        if type(spec) == "table" then
+            if spec.atlas then kind, value = "atlas", spec.atlas elseif spec.file then kind, value = "file", spec.file end
+        end
+    else
+        local icon = sk.icon
+        if type(icon) == "table" then
+            if icon.atlas then kind, value = "atlas", icon.atlas end
+        elseif icon ~= nil then
+            kind, value = "file", icon
+        end
+    end
+    idx = 0
+    if kind then
+        for k, e in ipairs(list) do
+            if e.kind == kind and tostring(e.value) == tostring(value) then idx = k break end
+        end
+    end
+    local e = idx > 0 and list[idx]
+    if e then
+        bar.text:SetText(("%d   %s   %s"):format(idx, e.kind, e.label))
+        for pos, k in ipairs(filtered) do
+            if k == idx then top = math.max(0, math.floor((pos - 1) / COLS) - 1) break end
+        end
+    else
+        bar.text:SetText(kind and ("%s   %s   (not in this list)"):format(kind, tostring(value)) or "(the standard of the window)")
+    end
+    Render()
+end
+
 -- an empty window in the Blizzard style with a few parts to judge a background by
 local function BuildTest()
     local f = W.NewPlate(UIParent, C.page)
     f:SetSize(520, 380)
-    _G.ForeverCodexBgTest = f -- (for /fcdump ForeverCodexBgTest.blizzFrame)
+    _G.ForeverCompanionBgTest = f -- (for /fcdump ForeverCompanionBgTest.blizzFrame)
     f:SetPoint("CENTER", 260, 0)
     f:SetFrameStrata("DIALOG")
     f:SetToplevel(true)
@@ -355,12 +392,12 @@ local function SetTab(which)
     idxOf[tab] = idx
     tab = which
     if not lists[tab] then lists[tab] = tab == "bg" and Candidates() or IconCandidates() end
-    list, idx = lists[tab], idxOf[tab] or 0
+    list = lists[tab]
     kindFilter = "all"
     Filter()
     top = 0
-    Render()
     Refresh()
+    Sync()
 end
 
 local function Build()
@@ -451,13 +488,13 @@ local function Build()
     function f.rowsWindow()
         local out = {}
         for _, d in ipairs(TARGETS) do
-            out[#out + 1] = Radio(d[2], target == d[1], function() target = d[1]; Refresh(); ApplyStyles() end)
+            out[#out + 1] = Radio(d[2], target == d[1], function() target = d[1]; Refresh(); ApplyStyles(); Sync() end)
         end
         out[#out + 1] = { kind = "separator" }
         out[#out + 1] = { kind = "action", label = "Reset this window", close = true, onClick = function()
             ns.db.settings.skins = ns.db.settings.skins or {}
             ns.db.settings.skins[target] = nil
-            Refresh(); ApplyStyles()
+            Refresh(); ApplyStyles(); Sync()
         end }
         return out
     end
@@ -552,8 +589,8 @@ local function Build()
     return f
 end
 
-SLASH_FOREVERCODEXBG1 = "/fcbg"
-SlashCmdList.FOREVERCODEXBG = function(msg)
+SLASH_FOREVERCOMPANIONBG1 = "/fcbg"
+SlashCmdList.FOREVERCOMPANIONBG = function(msg)
     if not bar then Build(); test = BuildTest() end
     if bar:IsShown() and msg == "" then bar:Hide() test:Hide() return end
     if not list then
@@ -565,5 +602,5 @@ SlashCmdList.FOREVERCODEXBG = function(msg)
     test:Show()
     Refresh()
     bar.layoutMenus()
-    Use(tonumber(msg) or (idx == 0 and 1 or idx))
+    if tonumber(msg) then Use(tonumber(msg)) else Sync() end
 end

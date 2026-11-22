@@ -1,4 +1,4 @@
-Forever Codex bundles the following unmodified upstream libraries
+Forever Companion bundles the following unmodified upstream libraries
 (used for the minimap button). Their authors retain ownership; their terms
 apply to these files and are not replaced by this addon's own code.
 

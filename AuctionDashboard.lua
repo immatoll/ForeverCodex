@@ -58,8 +58,9 @@ local function Item(id)
     return name, q, icon
 end
 
--- a card: a plate with a title and rows (a picture, a name, up to three figures on the right)
-local function NewCard(parent, title, widths)
+-- a card: a plate with a title and rows (a picture, a name, up to four figures on the right). heads: a small label over each figure
+-- (or none); arrowCol: the figure that has an arrow (up or down) before it. As many rows as fit are shown; the wheel scrolls the rest.
+local function NewCard(parent, title, widths, heads, arrowCol)
     local card = W.NewPlate(parent, C.plate)
     card.title = card:CreateFontString(nil, "OVERLAY", "GameFontNormal")
     card.title:SetPoint("TOPLEFT", 10, -8)
@@ -74,12 +75,36 @@ local function NewCard(parent, title, widths)
     card.empty:SetJustifyH("LEFT")
     card.empty:SetWordWrap(true)
     card.empty:SetTextColor(unpack(C.muted))
+    card.headH = heads and 16 or 0
+    card.arrowCol = arrowCol
+    card.offset = 0
+    -- where each figure stands (from the right edge of a row)
+    card.cellX = {}
+    local x = 4
+    for k = #widths, 1, -1 do
+        card.cellX[k] = x
+        x = x + math.max(1, widths[k] or 1) + 6
+    end
+    card.nameInset = x
+    if heads then
+        for k, label in pairs(heads) do
+            if label ~= "" then
+                local fs = card:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+                fs:SetPoint("TOPRIGHT", card, "TOPRIGHT", -(6 + card.cellX[k]), -30)
+                fs:SetWidth(math.max(1, widths[k] or 1))
+                fs:SetJustifyH("RIGHT")
+                fs:SetWordWrap(false)
+                fs:SetTextColor(unpack(C.muted))
+                fs:SetText(label)
+            end
+        end
+    end
     card.rows = {}
-    for i = 1, 14 do
+    for i = 1, 24 do
         local r = CreateFrame("Button", nil, card)
         r:SetHeight(ROW_H)
-        r:SetPoint("TOPLEFT", 6, -(30 + (i - 1) * ROW_H))
-        r:SetPoint("TOPRIGHT", -6, -(30 + (i - 1) * ROW_H))
+        r:SetPoint("TOPLEFT", 6, -(30 + card.headH + (i - 1) * ROW_H))
+        r:SetPoint("TOPRIGHT", -6, -(30 + card.headH + (i - 1) * ROW_H))
         r.hl = r:CreateTexture(nil, "BACKGROUND")
         r.hl:SetAllPoints()
         r.hl:SetColorTexture(1, 0.85, 0.4, 0.10)
@@ -89,21 +114,23 @@ local function NewCard(parent, title, widths)
         r.icon:SetPoint("LEFT", 4, 0)
         r.icon:SetTexCoord(0.07, 0.93, 0.07, 0.93)
         r.cell = {}
-        local x = 4
         for k = #widths, 1, -1 do -- the figures from the right edge: the last one first
             local fs = r:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-            local wd = math.max(1, widths[k] or 1)
-            fs:SetPoint("RIGHT", r, "RIGHT", -x, 0)
-            fs:SetWidth(wd)
+            fs:SetPoint("RIGHT", r, "RIGHT", -card.cellX[k], 0)
+            fs:SetWidth(math.max(1, widths[k] or 1))
             fs:SetJustifyH("RIGHT")
             fs:SetWordWrap(false)
             r.cell[k] = fs
-            x = x + wd + 6
         end
-        card.nameInset = x
+        if arrowCol then
+            r.arrow = r:CreateTexture(nil, "OVERLAY")
+            r.arrow:SetSize(9, 9)
+            r.arrow:SetTexture("Interface\\ChatFrame\\ChatFrameExpandArrow")
+            r.arrow:Hide()
+        end
         r.name = r:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
         r.name:SetPoint("LEFT", r.icon, "RIGHT", 6, 0)
-        r.name:SetPoint("RIGHT", r, "RIGHT", -x, 0)
+        r.name:SetPoint("RIGHT", r, "RIGHT", -card.nameInset, 0)
         r.name:SetJustifyH("LEFT")
         r.name:SetWordWrap(false)
         r:SetScript("OnEnter", function(self)
@@ -112,7 +139,25 @@ local function NewCard(parent, title, widths)
                 GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
                 GameTooltip:SetHyperlink("item:" .. self.id)
                 if ns.TipItem then ns.TipItem(GameTooltip, self.id) end
+                if card.hint then
+                    GameTooltip:AddLine(" ")
+                    GameTooltip:AddLine(card.hint, 0.93, 0.74, 0.30)
+                end
                 GameTooltip:Show()
+                -- no comparison with the worn equipment (the game puts it beside the tooltip): not on this page
+                local function HideCompare()
+                    for _, name in ipairs({ "ShoppingTooltip1", "ShoppingTooltip2" }) do
+                        local t = _G[name]
+                        if t and t.Hide then t:Hide() end
+                    end
+                    pcall(function() if TooltipComparisonManager and TooltipComparisonManager.Clear then TooltipComparisonManager:Clear() end end)
+                end
+                if not IsShiftKeyDown() then
+                    HideCompare()
+                    C_Timer.After(0, function()
+                        if GameTooltip:GetOwner() == self and not IsShiftKeyDown() then HideCompare() end
+                    end)
+                end
             elseif self.tip then
                 GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
                 GameTooltip:SetText(self.tip, 1, 0.85, 0.4, true)
@@ -120,15 +165,34 @@ local function NewCard(parent, title, widths)
             end
         end)
         r:SetScript("OnLeave", function(self) self.hl:Hide(); GameTooltip:Hide() end)
+        r:SetScript("OnClick", function(self)
+            if self.id and card.onClick then card.onClick(self.id, self) end
+        end)
         card.rows[i] = r
     end
-    card.shown = 0
-    -- fills the rows from a list of { id, icon, name, a, b, c, tip }; as many as fit
+    -- a slim thumb at the right edge when there is more than fits
+    card.thumb = card:CreateTexture(nil, "OVERLAY")
+    card.thumb:SetWidth(3)
+    card.thumb:SetColorTexture(C.goldDim[1], C.goldDim[2], C.goldDim[3], 0.8)
+    card.thumb:Hide()
+    card:EnableMouseWheel(true)
+    card:SetScript("OnMouseWheel", function(self, delta)
+        local maxOff = math.max(0, #(self.list or {}) - (self.fit or 6))
+        local off = math.max(0, math.min(maxOff, self.offset - delta * 3))
+        if off ~= self.offset then
+            self.offset = off
+            self:Fill(self.list, self.noteText, self.emptyText)
+        end
+    end)
+    -- fills the rows from a list of { id, icon, name, a, b, c, d, arrow, arrowColor, tip }; as many as fit, from the scroll position
     function card:Fill(list, note, emptyText)
-        local fit = math.min(self.fit or 6, 6)
+        self.list, self.noteText, self.emptyText = list, note, emptyText
+        local fit = math.max(1, self.fit or 6)
         self.note:SetText(note or "")
+        local maxOff = math.max(0, #list - fit)
+        self.offset = math.min(self.offset, maxOff)
         for i, r in ipairs(self.rows) do
-            local e = list[i]
+            local e = list[self.offset + i]
             if e and i <= fit then
                 r.id, r.tip = e.id, e.tip
                 r.icon:SetShown(e.icon ~= nil)
@@ -141,13 +205,37 @@ local function NewCard(parent, title, widths)
                 r.cell[2]:SetText(e.b or "")
                 r.cell[3]:SetText(e.c or "")
                 if r.cell[4] then r.cell[4]:SetText(e.d or "") end
+                if r.arrow then
+                    local cell = r.cell[self.arrowCol]
+                    if e.arrow and cell then
+                        r.arrow:ClearAllPoints()
+                        r.arrow:SetPoint("RIGHT", cell, "RIGHT", -(cell:GetStringWidth() + 4), 0)
+                        r.arrow:SetRotation(e.arrow == "up" and math.pi / 2 or -math.pi / 2)
+                        local col = e.arrowColor or C.muted
+                        r.arrow:SetVertexColor(col[1], col[2], col[3])
+                        r.arrow:Show()
+                    else
+                        r.arrow:Hide()
+                    end
+                end
                 r:Show()
             else
                 r.id, r.tip = nil, nil
                 r:Hide()
+                if r.arrow then r.arrow:Hide() end
             end
         end
         self.empty:SetText((#list == 0) and (emptyText or "") or "")
+        if #list > fit then
+            local room = (self.fit or fit) * ROW_H
+            local h = math.max(14, room * fit / #list)
+            self.thumb:ClearAllPoints()
+            self.thumb:SetPoint("TOPRIGHT", self, "TOPRIGHT", -2, -(30 + self.headH) - (room - h) * self.offset / math.max(1, maxOff))
+            self.thumb:SetHeight(h)
+            self.thumb:Show()
+        else
+            self.thumb:Hide()
+        end
     end
     return card
 end
@@ -169,7 +257,29 @@ local function WealthList()
         { name = L["Cash"], c = Money(t.money) },
         { name = L["Items"], c = Money((t.worth or 0) - (t.money or 0)) },
     }
-    if ahValue + mail > 0 then list[#list + 1] = { name = L["In auctions and mail"], c = Money(ahValue + mail) } end
+    if ahValue > 0 then list[#list + 1] = { name = (L["On the auction house"]) .. GREY .. " (" .. ahCount .. ")|r", c = Money(ahValue) } end
+    if mail > 0 then list[#list + 1] = { name = L["Gold in the mail"], c = Money(mail) } end
+    -- the characters: how many, and the richest
+    local richest, best
+    for _, rec in ipairs(chars) do
+        local worth = acc.WorthOf(rec)
+        if not best or worth > best then richest, best = rec, worth end
+    end
+    -- what the auction house brought and cost, as far as the addon saw it: auctions that sold (less the fee) and what was bought with the buy panel
+    local income, spent = 0, 0
+    for _, e in ipairs(ns.db and ns.db.ahHistory or {}) do
+        if e.state == "sold" then income = income + math.floor((e.buyout or 0) * (1 - FEE)) end
+    end
+    for _, e in ipairs(ns.db and ns.db.ahSpent or {}) do spent = spent + (e.total or 0) end
+    local tip = L["Only what the addon has seen: auctions that sold (less the 5 % fee) and what was bought with the buy panel."]
+    list[#list + 1] = { name = L["Earned at the auction house"], c = Money(income, GREEN), tip = tip }
+    list[#list + 1] = { name = L["Spent at the auction house"], c = Money(spent, RED), tip = tip }
+    if richest and #chars > 1 then
+        local col = RAID_CLASS_COLORS and richest.class and RAID_CLASS_COLORS[richest.class]
+        local nm = richest.name or "?"
+        if col then nm = ("|cff%02x%02x%02x%s|r"):format(col.r * 255 + 0.5, col.g * 255 + 0.5, col.b * 255 + 0.5, nm) end
+        list[#list + 1] = { name = L["Richest"] .. "  " .. nm, c = Money(best) }
+    end
     return list, nil
 end
 
@@ -192,15 +302,30 @@ local function BagList()
         if ah then
             local net = math.floor(ah * (1 - FEE))
             local vendor = ns.Value.Vendor(id) or 0
-            list[#list + 1] = { id = id, n = n, ah = ah, gain = (net - vendor) * n }
+            local _, _, avg = ns.AH.Trend(id, 7)
+            local diff = (avg and avg > 0) and ((ah - avg) / avg * 100) or nil -- how far the price is from its average of the week
+            list[#list + 1] = { id = id, n = n, ah = ah, gain = (net - vendor) * n, diff = diff }
         end
     end
     table.sort(list, function(a, b) return a.gain > b.gain end)
     local out = {}
-    for i = 1, math.min(14, #list) do
+    for i = 1, math.min(20, #list) do
         local e = list[i]
         local name, q, icon = Item(e.id)
-        out[i] = { id = e.id, icon = icon, name = Coloured(q, name or "…"), a = "×" .. e.n, b = Money(e.ah), c = Gain(e.gain) }
+        local entry = { id = e.id, icon = icon, name = Coloured(q, name or "…"), a = "×" .. e.n, b = Money(e.ah), d = Gain(e.gain) }
+        -- the trend as the seller sees it: above the average of the week is good, below it is not
+        if e.diff then
+            local pct = math.floor(math.abs(e.diff) + 0.5)
+            local col = e.diff >= 3 and GREEN or (e.diff <= -3 and RED or GREY)
+            entry.c = col .. ("%d %%"):format(pct) .. "|r"
+            if pct >= 1 then
+                entry.arrow = e.diff > 0 and "up" or "down"
+                entry.arrowColor = e.diff >= 3 and { 0.40, 0.86, 0.66 } or (e.diff <= -3 and { 1, 0.48, 0.42 } or { 0.54, 0.5, 0.43 })
+            end
+        else
+            entry.c = GREY .. "–|r"
+        end
+        out[i] = entry
     end
     return out, L["Nothing of value in your bags (or no auction scan yet)."]
 end
@@ -249,13 +374,12 @@ local function MoversStep()
         if now and now >= MIN_PRICE then
             local sales = ns.AH.Demand and ns.AH.Demand(id, 7)
             if sales and sales >= 0.5 then
-                m.demand[#m.demand + 1] = { id = id, sales = sales, now = now }
-                -- what is rising counts only when it also sells
+                -- the price against its average of the week
                 local price, _, avg = ns.AH.Trend(id, 7)
-                if price and avg and avg >= MIN_PRICE then
-                    local diff = (now - avg) / avg * 100
-                    if diff >= 10 then m.trend[#m.trend + 1] = { id = id, diff = diff, now = now, gain = now - avg, sales = sales } end
-                end
+                local diff = (price and avg and avg >= MIN_PRICE) and ((now - avg) / avg * 100) or nil
+                m.demand[#m.demand + 1] = { id = id, sales = sales, now = now, diff = diff }
+                -- what is rising counts only when it also sells
+                if diff and diff >= 10 then m.trend[#m.trend + 1] = { id = id, diff = diff, now = now, gain = now - avg, sales = sales } end
             end
         end
     end
@@ -277,13 +401,27 @@ local function MaterialList(which)
     local m = movers
     if not m.done then return {}, L["Working it out…"] end
     local list, out = m[which], {}
-    for i = 1, math.min(14, #list) do
+    for i = 1, math.min(20, #list) do
         local e = list[i]
         local name, q, icon = Item(e.id)
         if which == "demand" then
-            out[i] = { id = e.id, icon = icon, name = Coloured(q, name or "…"), b = Money(e.now), c = SalesText(e.sales) }
+            -- the price development as the buyer sees it: below the average of the week is good (green), above it dear (amber)
+            local entry = { id = e.id, icon = icon, name = Coloured(q, name or "…"), b = Money(e.now), d = SalesText(e.sales) }
+            if e.diff then
+                local pct = math.floor(math.abs(e.diff) + 0.5)
+                local cheap, dear = e.diff <= -3, e.diff >= 3
+                entry.c = (cheap and GREEN or (dear and AMBER or GREY)) .. ("%d %%"):format(pct) .. "|r"
+                if pct >= 1 then
+                    entry.arrow = e.diff > 0 and "up" or "down"
+                    entry.arrowColor = cheap and { 0.40, 0.86, 0.66 } or (dear and { 1, 0.65, 0.24 } or { 0.54, 0.5, 0.43 })
+                end
+            else
+                entry.c = GREY .. "–|r"
+            end
+            out[i] = entry
         else
-            out[i] = { id = e.id, icon = icon, name = Coloured(q, name or "…"), a = SalesText(e.sales), b = Pct(e.diff), c = Money(e.gain, GREEN) }
+            out[i] = { id = e.id, icon = icon, name = Coloured(q, name or "…"), a = SalesText(e.sales), b = Pct(e.diff), c = Money(e.gain, GREEN),
+                arrow = "up", arrowColor = { 0.40, 0.86, 0.66 } }
         end
     end
     local none = which == "demand" and L["No material has a demand yet: it needs scans on different days (or follow every item in the options)."]
@@ -297,10 +435,31 @@ function D.Build(parent)
     local f = CreateFrame("Frame", nil, parent)
     f:Hide()
 
-    local wealth = NewCard(f, L["Your wealth"], { 0, 0, 110 })
-    local bags = NewCard(f, L["Worth a look in your bags"], { 44, 92, 110 })
-    local demand = NewCard(f, L["Crafting materials in demand"], { 1, 92, 70 })
-    local trend = NewCard(f, L["Trending crafting materials"], { 62, 58, 96 })
+    local wealth = NewCard(f, L["Your wealth"], { 0, 0, 130 })
+    local bags = NewCard(f, L["Worth a look in your bags"], { 38, 86, 58, 100 }, { L["Amount"], L["Price"], L["Change"], L["Gain"] }, 3)
+    local demand = NewCard(f, L["Crafting materials in demand"], { 1, 80, 60, 70 }, { "", L["Price"], L["Change"], L["Demand"] }, 3)
+    local trend = NewCard(f, L["Trending crafting materials"], { 62, 62, 96 }, { L["Demand"], L["Change"], L["Gain"] }, 2)
+
+    -- what is worth a look in the bags can be put up for sale from here: the sell panel of the tab opens in the middle of the page
+    bags.hint = L["Click to sell it"]
+    bags.onClick = function(id)
+        local panel = ns.AuctionSellPanel
+        if panel then
+            W.Click()
+            panel:Open(id, f)
+        end
+    end
+
+    -- the lists of materials: a click opens the buy panel
+    local function Buy(id)
+        local panel = ns.AuctionBuyPanel
+        if panel then
+            W.Click()
+            panel:Open(id, f)
+        end
+    end
+    demand.hint, demand.onClick = L["Click to buy it"], Buy
+    trend.hint, trend.onClick = L["Click to buy it"], Buy
 
     -- two rows: your wealth and your bags above, the two lists of materials below, side by side
     local GAP, LEFT_W = 8, 300
@@ -314,7 +473,7 @@ function D.Build(parent)
             card:ClearAllPoints()
             card:SetPoint(point, f, point, x, y)
             card:SetSize(cw, ch)
-            card.fit = math.max(1, math.floor((ch - 36) / ROW_H))
+            card.fit = math.max(1, math.floor((ch - 36 - card.headH) / ROW_H))
         end
         At(wealth, "TOPLEFT", 0, 0, LEFT_W, top)
         At(bags, "TOPRIGHT", 0, 0, w - LEFT_W - GAP, top)
@@ -329,7 +488,7 @@ function D.Build(parent)
         local list, note = WealthList()
         wealth:Fill(list, note, note)
         local b, bEmpty = BagList()
-        bags:Fill(b, nil, bEmpty)
+        bags:Fill(b, L["Gain over the vendor, after the 5 % fee"], bEmpty)
         local d, dEmpty = MaterialList("demand")
         demand:Fill(d, nil, dEmpty)
         local t, tEmpty = MaterialList("trend")

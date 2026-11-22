@@ -3,7 +3,7 @@ local L = ns.L
 local W = ns.W
 local C = W.C
 
--- A tab of our own in the game's auction house window ("Codex", next to Buy / Sell / Auctions): the data scan
+-- A tab of our own in the game's auction house window ("Companion", next to Buy / Sell / Auctions): the data scan
 -- with its progress, the price trends of what the scan follows, and a comparison of vendor against auction
 -- house for what you carry. It is made the first time the auction house opens (the window does not exist
 -- before), the way Auctionator's tab library does it for the modern auction house.
@@ -17,7 +17,7 @@ local BAR_W, BAR_GAP, BAR_H = 6, 2, 16
 local FEE = 0.05          -- the auction house keeps this much of a sale
 local SIDE_W = 176               -- the filters stand in a column on the left (it can be folded away)
 local LEFT0 = SIDE_W + 18        -- where the list begins (when the column stays open)
-local HANDLE_W, SIDE_TOP, SIDE_BOTTOM = 20, 48, 48   -- the strip at the left edge; where the column begins and ends
+local HANDLE_W, SIDE_TOP, SIDE_BOTTOM = 20, 48, 12   -- the strip at the left edge; where the column begins and ends (the footer is under the panel)
 local HIDDEN = HANDLE_W + 4       -- the column's width when it has slid away (only the strip is left)
 local headY, listTop = 48, 74
 local NAME_MIN = 200             -- the item name always keeps this much room; columns give way first
@@ -53,6 +53,7 @@ local SLICE_MS = 5                   -- how long the list may work per frame
 local recCache = { all = {}, trend = {}, profit = {}, recipes = {} } -- the rows are kept and filled again, not made anew
 local poolCache = {}                  -- the pool and the id list of the view of everything, while the scan is the same
 local collectHave = {}                -- what the chosen characters carry (for the recipes)
+local collectLoc                      -- where the items of "Sell" are: in the bags of this character, in its bank, with another character
 local poolExtra = {}                  -- items whose data is needed too (products and materials of recipes)
 local job, driver, collectStamp           -- the list being worked out, the frame that works on it, the scan it is for
 local poolVersion, indexedVersion = 0, -1 -- (when the items change, their names are looked at again)
@@ -68,8 +69,18 @@ local VIEWS = {
         cols = {},
         sort = "name", asc = true,
     },
+    own = {
+        label = L["Auctions"], icon = "Interface\\Icons\\INV_Misc_Coin_03",
+        cols = {},
+        sort = "name", asc = true,
+    },
+    shop = {
+        label = L["Shopping list"], icon = "Interface\\Icons\\INV_Misc_Bag_09",
+        cols = {},
+        sort = "name", asc = true,
+    },
     all = {
-        label = L["All items"], icon = "Interface\\Icons\\INV_Misc_Bag_08",
+        label = L["Market"], icon = "Interface\\Icons\\INV_Misc_Bag_08",
         cols = {
             { "price", 92, L["Price"] },
             { "avg", 92, L["Avg. 7d"], L["The average price of the last 7 days (from your scans)."], 2 },
@@ -81,28 +92,29 @@ local VIEWS = {
     trend = {
         label = L["Trends"], icon = W.ICON.rate,
         cols = {
-            { "trend", DAYS * (BAR_W + BAR_GAP) + 14, L["Trend"], L["Price of the last 7 days; the last bar is the latest scan."], 3 },
-            { "demand", 66, L["Demand"], L["Estimated sales per day: pieces that left the offers between your scans. Expired and cancelled auctions count too, and new listings hide some, so take it as a guide."], 4 },
-            { "supply", 60, L["Supply"], L["How many pieces were on offer at the last scan."], 1 },
-            { "diff", 66, L["vs. avg."], L["The price now against the average of the last 7 days."] },
-            { "avg", 88, L["Avg. 7d"], nil, 2 },
             { "price", 92, L["Price"] },
+            { "avg", 88, L["Avg. 7d"], nil, 2 },
+            { "diff", 66, L["vs. avg."], L["The price now against the average of the last 7 days."] },
+            { "supply", 60, L["Supply"], L["How many pieces were on offer at the last scan."], 1 },
+            { "demand", 66, L["Demand"], L["Estimated sales per day: pieces that left the offers between your scans. Expired and cancelled auctions count too, and new listings hide some, so take it as a guide."], 4 },
+            { "trend", DAYS * (BAR_W + BAR_GAP) + 14, L["Trend"], L["Price of the last 7 days; the last bar is the latest scan."], 3 },
         },
         sort = "diff", asc = true,
     },
     recipes = {
-        label = L["Your recipes"], icon = "Interface\\Icons\\INV_Scroll_03",
+        label = L["Craft"], icon = "Interface\\Icons\\INV_Scroll_03",
         cols = {
             { "profit", 98, L["Profit"], L["What it sells for on the auction house (after the fee) minus what its materials cost."] },
-            { "cost", 88, L["Materials"], L["What the materials cost: the auction price, or the vendor price where there is none."], 2 },
-            { "value", 88, L["Sells for"], L["The auction price of the item after the fee (or its disenchant value, when that is chosen at the left). Without a price there is no profit."], 3 },
+            { "cost", 88, L["Materials"], L["What the materials cost: the auction price, or the vendor price where there is none."], 3 },
+            { "value", 88, L["Sells for"], L["The auction price of the item after the fee (or its disenchant value, when that is chosen at the left). Without a price there is no profit."], 4 },
+            { "demand", 66, L["Demand"], L["Estimated sales per day of the product: pieces that left the offers between your scans. Expired and cancelled auctions count too, and new listings hide some, so take it as a guide."], 2 },
             { "can", 46, L["Now"], L["How many you can make now with what the chosen characters carry."] },
             { "known", 124, L["Known by"], nil, 1 },
         },
         sort = "profit", asc = false,
     },
     profit = {
-        label = L["Your items"], icon = W.ICON.coin,
+        label = L["Sell"], icon = W.ICON.coin,
         cols = {
             { "total", 98, L["Gain total"], L["Gain of selling all pieces on the auction house instead of to a vendor."] },
             { "gain", 92, L["Gain each"], L["The auction price after the fee, minus what it is compared with (a vendor's price, or the disenchant value)."], 3 },
@@ -113,7 +125,9 @@ local VIEWS = {
         sort = "total", asc = false,
     },
 }
-local VIEW_ORDER = { "dash", "all", "profit", "recipes", "trend" }
+local VIEW_ORDER = { "dash", "all", "profit", "own", "recipes", "trend", "shop" }
+-- pages have no table of their own (the dashboard, the shopping list)
+function T.IsPage(v) return v == "dash" or v == "shop" or v == "own" end
 
 local CLASSES = { 0, 7, 2, 4, 9, 1, 3, 15 } -- consumable, trade goods, weapon, armor, recipe, container, gem, misc
 local SLOTS = {
@@ -150,7 +164,12 @@ local function Compute(listWidth)
     local changed = false
     for view, def in pairs(VIEWS) do
         local list, sum = {}, 0
-        for _, col in ipairs(def.cols) do list[#list + 1] = col; sum = sum + col[2] end
+        for _, col in ipairs(def.cols) do
+            -- Market and Trends with a filter set: the supply is shown instead of the demand (what is on offer of what was filtered for)
+            if not ((view == "all" or view == "trend") and col[1] == "demand" and T.anyFilter) then
+                list[#list + 1] = col; sum = sum + col[2]
+            end
+        end
         while sum > avail do
             local best, at
             for i, col in ipairs(list) do
@@ -281,7 +300,7 @@ local function Sets()
 end
 
 -- a small dialog that asks for a name
-StaticPopupDialogs["FOREVERCODEX_NAME"] = {
+StaticPopupDialogs["FOREVERCOMPANION_NAME"] = {
     text = "%s", button1 = ACCEPT, button2 = CANCEL, hasEditBox = 1, maxLetters = 24, timeout = 0, whileDead = 1, hideOnEscape = 1,
     OnShow = function(self)
         local eb = self.editBox or self.EditBox
@@ -298,17 +317,17 @@ StaticPopupDialogs["FOREVERCODEX_NAME"] = {
     end,
     EditBoxOnEscapePressed = function(self) self:GetParent():Hide() end,
 }
-StaticPopupDialogs["FOREVERCODEX_CONFIRM"] = {
+StaticPopupDialogs["FOREVERCOMPANION_CONFIRM"] = {
     text = "%s", button1 = YES, button2 = NO, timeout = 0, whileDead = 1, hideOnEscape = 1,
     OnAccept = function() if T.popupDone then T.popupDone() end end,
 }
 local function AskName(title, text, done)
     T.popupText, T.popupDone = text, done
-    StaticPopup_Show("FOREVERCODEX_NAME", title)
+    StaticPopup_Show("FOREVERCOMPANION_NAME", title)
 end
 local function Confirm(title, done)
     T.popupDone = done
-    StaticPopup_Show("FOREVERCODEX_CONFIRM", title)
+    StaticPopup_Show("FOREVERCOMPANION_CONFIRM", title)
 end
 
 -- a text in the colour of a rarity, and in the colour of a character's class
@@ -345,6 +364,22 @@ local function RarityIsDefault()
 end
 
 -- the filters of a view when it has none yet: your items start with this character, your recipes with all of them
+-- The places of the items are shown (a picture beside the star) when the list is not only what this character carries in its bags.
+local function LocActive()
+    if state.view ~= "profit" or not (ns.Acc and ns.Acc.MyKey) then return false end
+    local me, n = ns.Acc.MyKey(), 0
+    for _ in pairs(state.chars or {}) do n = n + 1 end
+    local onlyMe = n == 1 and state.chars and state.chars[me]
+    local bagsOnly = state.places and state.places.bags and not state.places.bank
+    return not (onlyMe and bagsOnly)
+end
+local LOCS = {
+    { "locBag", "Bags", { 0.25, 0.78, 0.48, 0.17 } },
+    { "locBank", "Bank", { 0.30, 0.55, 0.95, 0.16 } },
+    { "locOther", "Other characters", { 0.68, 0.46, 0.92, 0.16 } },
+}
+function T.LocW() return 0 end
+
 local function ViewDefaults(v)
     local d = { sort = VIEWS[v].sort, asc = VIEWS[v].asc, query = "", deals = false, rarity = SetDefaultRarity({}) }
     if v == "profit" or v == "recipes" then
@@ -354,7 +389,7 @@ local function ViewDefaults(v)
         else
             d.chars[ns.Acc.MyKey()] = true
         end
-        d.places = { bags = true, bank = true }
+        d.places = { bags = true, bank = v ~= "profit" } -- (what is to be sold is in the bags: the bank is for the other views)
     end
     return d
 end
@@ -501,8 +536,18 @@ local function ConsiderRecipe(key, entry, out)
     d.key, d.id, d.name, d.lname, d.link, d.quality = key, id, e.name, lname, e.link, ix and ix.quality
     d.icon = (m and m.icon) or ns.Acc.ProfIcon(e.prof)
     d.cost, d.value, d.profit, d.can = (#e.reagents > 0) and cost or nil, value, profit, can
+    d.demand = (id and ns.AH.Demand and ns.AH.Demand(id, 7)) or 0
+    d.reagents, d.prof = e.reagents, e.prof -- (for the craft panel)
     d.known, d.knownSort = table.concat(names, ", "), #known
     out[#out + 1] = d
+end
+
+-- what the craft panel asks of the tab: what the chosen characters have of an item, and the price of a material
+if ns.AuctionCraft then
+    ns.AuctionCraft.Hooks = {
+        have = function(id) return collectHave[id] or 0 end,
+        price = function(id) return ReagentPrice(id) end,
+    }
 end
 
 -- One item: counted for the category menu, then filtered and, if it passes, added to `out`.
@@ -552,6 +597,8 @@ local function Consider(id, own, out, cnt, ccount)
     local d = RecordOf(id)
     d.id, d.name, d.lname, d.icon = id, name, (e and e.lower) or name:lower(), m.icon
     d.gain, d.total = nil, nil
+    d.locBag, d.locBank, d.locOther = nil, nil, nil
+    if collectLoc then d.locBag, d.locBank, d.locOther = collectLoc.bag[id], collectLoc.bank[id], collectLoc.other[id] end
     if state.view == "trend" then
         local st = Stats(id)
         if not st.price then return end
@@ -613,7 +660,7 @@ local function ResultsValid(view)
 end
 
 local function StartCollect()
-    if state.view == "dash" then job = nil; return end -- (the dashboard has no list)
+    if T.IsPage(state.view) then job = nil; return end -- (a page has no list)
     -- the view of everything is the same until the next scan: its pool and id list are kept
     local ckey = (state.view == "all" and not state.list and not state.prof) and ("all:" .. tostring(ns.AH.Time())) or nil
     local ids
@@ -629,6 +676,17 @@ local function StartCollect()
     poolVersion = poolVersion + 1
     collectStamp = ns.AH.Time()
     collectHave = (state.view == "recipes") and ns.Acc.Holdings(state.chars, state.places.bags, state.places.bank, false) or {}
+    collectLoc = nil
+    if LocActive() then
+        local me, others = ns.Acc.MyKey(), {}
+        for key in pairs(state.chars or {}) do if key ~= me then others[key] = true end end
+        local mine = state.chars and state.chars[me] and { [me] = true } or {}
+        collectLoc = {
+            bag = state.places.bags and ns.Acc.Holdings(mine, true, false, true) or {},
+            bank = state.places.bank and ns.Acc.Holdings(mine, false, true, true) or {},
+            other = ns.Acc.Holdings(others, state.places.bags, state.places.bank, true),
+        }
+    end
     job = { ids = ids, n = #ids, i = 1, out = {}, cnt = {}, ccount = {}, stage = "filter", view = state.view, sig = Signature() }
     if driver then driver:Show() end
 end
@@ -683,6 +741,11 @@ local function FinishCollect()
     local full = true -- were all names known? (a list made before they were is made again when they are)
     for id in pairs(pool) do
         if type(id) == "number" and not (idx[id] or failed[id]) then full = false; break end
+    end
+    if full and view == "recipes" then -- (the products of the recipes are in the extra pool: their names and rarity matter too)
+        for id in pairs(poolExtra) do
+            if type(id) == "number" and not (idx[id] or failed[id]) then full = false; break end
+        end
     end
     results[view] = { view = view, data = out, counts = job.cnt, classCount = job.ccount, sig = job.sig, stamp = collectStamp,
         at = GetTime(), full = full }
@@ -849,6 +912,12 @@ local function NewRow(i)
     r:RegisterForClicks("LeftButtonUp", "RightButtonUp")
     r:SetScript("OnClick", function(self, button)
         local id = self.id
+        if state.view == "recipes" and self.recipe and button == "LeftButton" and not IsShiftKeyDown() and T.craft then
+            -- a click on a recipe: the materials for the crafts, what is there and what is missing, with a button to buy each
+            W.Click()
+            T.craft:Open(self.recipe, self)
+            return
+        end
         if not id then return end
         local _, link = GetInfo(id)
         if button == "RightButton" then
@@ -860,6 +929,8 @@ local function NewRow(i)
                         onClick = function() if ns.ItemInfo then ns.ItemInfo.Show(id) end end },
                     { kind = "action", label = L["Link in chat"], close = true,
                         onClick = function() if link and ChatEdit_InsertLink then ChatEdit_InsertLink(link) end end },
+                    { kind = "action", label = L["Add to shopping list"], close = true,
+                        onClick = function() if ns.AuctionShop then ns.AuctionShop.Add(id, 1) end end },
                     { kind = "separator" },
                     { kind = "header", label = L["Lists"] },
                 }
@@ -871,6 +942,14 @@ local function NewRow(i)
             end, true) -- (at the mouse)
         elseif IsShiftKeyDown() then
             if link and ChatEdit_InsertLink then ChatEdit_InsertLink(link) end
+        elseif state.view == "profit" and T.sell then
+            -- a click on a row of "Sell" opens the sell panel in the middle (the cheapest listings, the price, the button)
+            W.Click()
+            T.sell:Open(id, self, scroll)
+        elseif (state.view == "all" or state.view == "trend") and T.buy then
+            -- a click on a row of "Market" or "Trends" opens the buy panel (the cheapest listings, the amount, the cost, the button)
+            W.Click()
+            T.buy:Open(id, self, scroll)
         end
     end)
     rows[i] = r
@@ -889,6 +968,7 @@ local function UpdateThumb()
 end
 
 function T.Draw()
+    T.locOn = LocActive()
     local n = #data
     content:SetHeight(math.max(1, n * ROW))
     local maxScroll = math.max(0, n * ROW - scroll:GetHeight())
@@ -905,19 +985,34 @@ function T.Draw()
             r:SetPoint("TOPLEFT", content, "TOPLEFT", 0, -(at - 1) * ROW)
             r:SetPoint("TOPRIGHT", content, "TOPRIGHT", 0, -(at - 1) * ROW)
             r.id, r.link = d.id, d.link
+            r.recipe = state.view == "recipes" and d or nil
             r.stripe:SetColorTexture(1, 1, 1, at % 2 == 0 and 0.035 or 0)
             r.fav:SetShown(d.id ~= nil)
             Star(r.fav, d.id and InAnyList(d.id))
             r.icon:SetTexture(d.icon or "Interface\\Icons\\INV_Misc_QuestionMark")
+            -- the places of the item: the colour of the row
+            r.locD = T.locOn and d or nil
+            if T.locOn then
+                for _, spec in ipairs(LOCS) do
+                    local n = d[spec[1]]
+                    if n and n > 0 then
+                        local col = spec[3]
+                        r.stripe:SetColorTexture(col[1], col[2], col[3], col[4])
+                        break
+                    end
+                end
+            end
             if d.id then Ask(d.id) end
-            r.name:SetText(state.view == "recipes" and QualityColour(d.quality, d.name) or Coloured(idx[d.id], d.name))
+            r.name:SetText(state.view == "recipes" and QualityColour(d.quality or (d.id and idx[d.id] and idx[d.id].quality), d.name) or Coloured(idx[d.id], d.name))
             if state.view == "trend" then
                 r.cell.price:SetText(ns.Value.Format(d.price))
                 r.cell.avg:SetText(ns.Value.Format(d.avg))
                 r.cell.diff:SetText(Pct(d.diff))
                 r.cell.supply:SetText(d.supply > 0 and tostring(d.supply) or "–")
                 r.cell.demand:SetText(Demand(d.demand))
-                local x0 = ColRight("trend", 1) + 8
+                local ti = 1 -- (the column of the bars: not the first one any more, the price is at the right)
+                for i, col in ipairs(Cols("trend")) do if col[1] == "trend" then ti = i end end
+                local x0 = ColRight("trend", ti) + 8
                 local top = 0
                 for _, v in ipairs(d.series) do if v > top then top = v end end
                 for k = 1, DAYS do
@@ -934,6 +1029,7 @@ function T.Draw()
                 r.cell.cost:SetText(d.cost and ns.Value.Format(d.cost) or "|cff8a806e–|r")
                 r.cell.value:SetText((d.value and d.value > 0) and ns.Value.Format(d.value) or "|cff8a806e–|r")
                 r.cell.can:SetText((d.can and d.can > 0) and tostring(d.can) or "|cff8a806e–|r")
+                r.cell.demand:SetText(Demand(d.demand))
                 r.cell.known:SetText(d.known)
             elseif state.view == "all" then
                 r.cell.price:SetText(d.price > 0 and ns.Value.Format(d.price) or "|cff8a806e–|r")
@@ -955,12 +1051,12 @@ function T.Draw()
         end
     end
     for i = visible + 1, #rows do rows[i]:Hide() end
-    empty:SetShown(n == 0 and state.view ~= "dash")
+    empty:SetShown(n == 0 and not T.IsPage(state.view))
     empty:SetText(job and L["Loading…"] or state.view == "recipes" and L["No recipes to show: open a profession window with each of your characters to have its recipes read."]
         or state.view == "profit" and L["Nothing to compare: nothing tradable in your bags or bank matches, or the auction house has not been scanned yet."]
         or (state.view == "all" and L["Nothing matches. Scan the auction house to fill this list."])
         or L["No price history yet. Scan the auction house here, and again on other days: from the second day on the trends appear."])
-    count:SetText(state.view == "dash" and "" or (L["%d items"]):format(n))
+    count:SetText(T.IsPage(state.view) and "" or (L["%d items"]):format(n))
     UpdateThumb()
 end
 
@@ -979,6 +1075,12 @@ local function Refresh()
     if state.view == "dash" then
         if T.DashUpdate then T.DashUpdate() end
         return
+    elseif state.view == "shop" then
+        if T.ShopUpdate then T.ShopUpdate() end
+        return
+    elseif state.view == "own" then
+        if T.OwnUpdate then T.OwnUpdate() end
+        return
     end
     if dirty or collectStamp ~= ns.AH.Time() then dirty = false; StartCollect() end
     T.Redraw()
@@ -986,7 +1088,7 @@ end
 
 -- the list is prepared when the auction house opens, so that it is there when the tab is clicked
 function T.Prewarm()
-    if state.view == "dash" then return end
+    if T.IsPage(state.view) then return end
     if dirty or collectStamp ~= ns.AH.Time() then dirty = false; StartCollect() end
 end
 
@@ -999,6 +1101,11 @@ local function Dirty()
     Refresh()
 end
 local function DirtyQuiet() dirty = true; Refresh() end
+-- a price was looked at on the auction house and is another one than the scan's: the lists are worked out again
+function T.PriceChanged()
+    for k in pairs(results) do results[k] = nil end
+    DirtyQuiet()
+end
 
 -- The index of names is filled in the background, a few items at a time (what is saved is taken at once, a limited
 -- number per round; only the rest is asked for from the game).
@@ -1065,7 +1172,44 @@ driver:SetScript("OnUpdate", function(self, dt)
 end)
 
 -- the page ---------------------------------------------------------------------------------------------
-local function Build()
+-- The page (panel) lives in the auction house frame or in a window of the addon (when the auction house is closed). T.PlacePanel docks it
+-- in a host: its parent, its places, and the frame levels of all it holds (the level of a frame does not follow its parent's).
+local function ShiftLevels(frame, delta)
+    frame:SetFrameLevel(math.max(0, frame:GetFrameLevel() + delta))
+    for _, ch in ipairs({ frame:GetChildren() }) do ShiftLevels(ch, delta) end
+end
+function T.PlacePanel(host)
+    local isAH = AuctionHouseFrame ~= nil and host == AuctionHouseFrame
+    local delta = host:GetFrameLevel() + 6 - panel:GetFrameLevel()
+    panel:SetParent(host)
+    panel:ClearAllPoints()
+    if isAH then
+        panel:SetPoint("TOPLEFT", host, "TOPLEFT", 14, -58)
+        panel:SetPoint("BOTTOMRIGHT", host, "BOTTOMRIGHT", -14, 30)
+    else
+        -- (in the Blizzard style the strip for the views is above the window's edge, in the other styles it is inside)
+        local top = 0
+        panel:SetPoint("TOPLEFT", host, "TOPLEFT", 12, top)
+        panel:SetPoint("BOTTOMRIGHT", host, "BOTTOMRIGHT", -12, 32)
+    end
+    if delta ~= 0 then ShiftLevels(panel, delta) end
+    -- the state line: beside the gold of the auction house, or at the left of the window
+    local st = T.status
+    if st then
+        st:ClearAllPoints()
+        local gold = isAH and (AuctionHouseFrame.MoneyFrameBorder or AuctionHouseFrame.MoneyFrameInset)
+        if gold then
+            st:SetPoint("LEFT", gold, "RIGHT", 14, 0)
+        elseif isAH then
+            st:SetPoint("LEFT", host, "BOTTOMLEFT", 260, 15)
+        else
+            st:SetPoint("LEFT", host, "BOTTOMLEFT", 16, 16)
+        end
+        if T.scanBtn then st:SetPoint("RIGHT", T.optionsBtn or T.scanBtn, "LEFT", -12, 0) end
+    end
+end
+
+local function Build(host)
     ns.db.settings.ahViews = ns.db.settings.ahViews or {}
     viewData = ns.db.settings.ahViews
     for v in pairs(VIEWS) do
@@ -1079,10 +1223,8 @@ local function Build()
         d.query = "" -- (the search text is not kept)
         if d.sort == nil then d.sort, d.asc = VIEWS[v].sort, VIEWS[v].asc end
     end
-    panel = W.NewPlate(AuctionHouseFrame, C.page)
-    panel:SetPoint("TOPLEFT", AuctionHouseFrame, "TOPLEFT", 6, -58)
-    panel:SetPoint("BOTTOMRIGHT", AuctionHouseFrame, "BOTTOMRIGHT", -6, 30)
-    panel:SetFrameLevel(AuctionHouseFrame:GetFrameLevel() + 6)
+    panel = W.NewPlate(host, C.page)
+    T.PlacePanel(host)
     panel:Hide()
 
     -- The column of filters grows out of a strip at the left edge and shrinks back into it: a frame that clips what lies
@@ -1096,11 +1238,27 @@ local function Build()
     if clip.SetClipsChildren then clip:SetClipsChildren(true) end
     clip:SetFrameLevel(panel:GetFrameLevel() + 20)
     -- the dashboard (the first page): a frame over the whole area of the table and the column
+    T.sell = ns.AuctionSell and ns.AuctionSell.Build(panel)
+    T.buy = ns.AuctionBuy and ns.AuctionBuy.Build(panel)
+    T.craft = ns.AuctionCraft and ns.AuctionCraft.Build(panel)
+    ns.AuctionBuyPanel = T.buy
+    if ns.AuctionSell then ns.AuctionSell.OnPrice = T.PriceChanged end
+    ns.AuctionSellPanel = T.sell -- (for /fcdeposit)
     local dash = ns.AuctionDash.Build(panel)
-    dash:SetPoint("TOPLEFT", panel, "TOPLEFT", 8, -K.SIDE_TOP)
+    dash:SetPoint("TOPLEFT", panel, "TOPLEFT", 8, -8) -- (it has no first row of its own: no search, no filter)
     dash:SetPoint("BOTTOMRIGHT", panel, "BOTTOMRIGHT", -8, K.SIDE_BOTTOM)
     dash:SetFrameLevel(panel:GetFrameLevel() + 12)
     function T.DashUpdate() dash:Update() end
+    local shop = ns.AuctionShop.Build(panel)
+    shop:SetPoint("TOPLEFT", panel, "TOPLEFT", 8, -8)
+    shop:SetPoint("BOTTOMRIGHT", panel, "BOTTOMRIGHT", -8, K.SIDE_BOTTOM)
+    shop:SetFrameLevel(panel:GetFrameLevel() + 12)
+    function T.ShopUpdate() shop:Update() end
+    local ownPage = ns.AuctionOwn.Build(panel) -- (not "own": T.Layout has a variable of that name)
+    ownPage:SetPoint("TOPLEFT", panel, "TOPLEFT", 8, -8)
+    ownPage:SetPoint("BOTTOMRIGHT", panel, "BOTTOMRIGHT", -8, K.SIDE_BOTTOM)
+    ownPage:SetFrameLevel(panel:GetFrameLevel() + 12)
+    function T.OwnUpdate() ownPage:Update() end
     local side = CreateFrame("Frame", nil, clip)
     side:SetPoint("TOPLEFT", clip, "TOPLEFT", 0, 0)
     side:SetPoint("BOTTOMLEFT", clip, "BOTTOMLEFT", 0, 0)
@@ -1160,10 +1318,10 @@ local function Build()
     local dd = W.NewDropdown(panel, { level = panel:GetFrameLevel() + 60, width = 300, strata = "FULLSCREEN_DIALOG" })
 
     -- first row: the two views on the left; on the right the scan (state and progress, then the button) and options
-    local viewButtons, vx = {}, 8
+    local viewButtons, vx = {}, 58 -- (above the panel, beside the round icon of the window)
     for _, v in ipairs(VIEW_ORDER) do
         local b = Pictured(VIEWS[v].label, VIEWS[v].icon)
-        b:SetPoint("TOPLEFT", vx, -8)
+        b:SetPoint("BOTTOMLEFT", panel, "TOPLEFT", vx, 2)
         b:SetScript("OnClick", function()
             if state.view == v then return end
             -- the old table fades out; then, under the cover, the view changes (what it showed last is there at once, a new list is
@@ -1179,9 +1337,28 @@ local function Build()
     end
 
     local options = W.NewMenuButton(panel, dd, L["Options"], W.ICON.settings)
-    options:SetPoint("TOPRIGHT", -8, -8)
+    -- (the options sit in the footer, left of the scan button: placed below, when that exists)
     local sideBtn = W.NewButton(panel, L["Filters"], 84, 24)
-    sideBtn:SetPoint("RIGHT", options, "LEFT", -6, 0)
+    sideBtn:SetPoint("TOPRIGHT", panel, "TOPRIGHT", -8, -8)
+    -- "Check prices": looks at the items of the list one by one at the auction house (the full scan can only be asked for now and then)
+    local checkBtn = W.NewButton(panel, L["Check prices"], 120, 24)
+    checkBtn:SetPoint("RIGHT", sideBtn, "LEFT", -6, 0)
+    checkBtn:SetScript("OnClick", function()
+        local ids = {}
+        for _, d in ipairs(data) do
+            if d.id and #ids < 40 then ids[#ids + 1] = d.id end
+        end
+        local ok, why = ns.AuctionSell.Check(ids)
+        if not ok and why then print("|cffffd100ForeverCompanion:|r " .. why) end
+    end)
+    checkBtn:HookScript("OnEnter", function(self)
+        GameTooltip:SetOwner(self, "ANCHOR_BOTTOM")
+        GameTooltip:SetText(L["Check prices"], 1, 0.85, 0.4)
+        GameTooltip:AddLine(L["Asks the auction house for each of the first 40 items of the list, one after the other, and takes the cheapest price as its price. Nothing waits for the full scan."], 0.85, 0.85, 0.85, true)
+        GameTooltip:Show()
+    end)
+    checkBtn:HookScript("OnLeave", function() GameTooltip:Hide() end)
+    T.checkBtn = checkBtn
     sideBtn:SetScript("OnClick", function()
         T.Transition(function()
             ns.db.settings.ahPin = not (ns.db.settings.ahPin == true)
@@ -1211,25 +1388,32 @@ local function Build()
     options:SetContent(L["Options"], W.ICON.settings, OptionRows)
 
     scanBtn = Pictured(L["Scan"], W.ICON.search)
-    scanBtn:SetPoint("BOTTOMRIGHT", panel, "BOTTOMRIGHT", -8, 8)
+    -- (the footer: in the strip of the window under the panel, to the right of the gold)
+    -- (placed by the panel's edge: the strip under it is 30 high; the button is 20 high, 8 above the lower edge of the window, and flush right)
+    scanBtn:SetHeight(20)
+    scanBtn:SetPoint("BOTTOMRIGHT", panel, "BOTTOMRIGHT", 2, -22)
+    options:SetHeight(20)
+    options:ClearAllPoints()
+    options:SetPoint("RIGHT", scanBtn, "LEFT", -6, 0)
+    T.optionsBtn = options
     scanBtn:SetScript("OnClick", function()
         local ok, why = ns.AH.Scan()
-        if not ok and why then print("|cffffd100ForeverCodex:|r " .. why) end
+        if not ok and why then print("|cffffd100ForeverCompanion:|r " .. why) end
     end)
 
     -- The progress of a scan is shown in the scan button itself: a stripe sweeps while the server is asked, then the
     -- button fills while the list is read. Beside it: the state of the data (last scan, when the next one is possible).
     status = panel:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-    status:SetPoint("LEFT", panel, "BOTTOMLEFT", 10, 20)
+    T.status, T.scanBtn = status, scanBtn
     status:SetJustifyH("LEFT")
     status:SetWordWrap(false)
-    status:SetWidth(300)
+    T.PlacePanel(host) -- (the place of the state line)
     status:SetTextColor(unpack(C.muted))
 
     -- the column of filters: search first, then the menus (they are placed by T.Layout)
     local search = CreateFrame("EditBox", nil, panel, W.TEMPLATE)
-    search:SetSize(K.SIDE_W - 16, 24)
-    search:SetPoint("TOPLEFT", 10, -48)
+    search:SetSize(260, 24)
+    search:SetPoint("TOPLEFT", 8, -8)
     search:SetBackdrop(W.PLATE_BACKDROP)
     search:SetBackdropColor(unpack(C.inset))
     search:SetBackdropBorderColor(unpack(C.goldDim))
@@ -1261,6 +1445,22 @@ local function Build()
     end
     search:SetScript("OnEscapePressed", function(self) self:SetText(""); self:ClearFocus() end)
     search:SetScript("OnEnterPressed", function(self) self:ClearFocus() end)
+
+    -- a star beside the search: only the favourites (the first list), in every view
+    local favBtn = W.NewIconButton(panel, W.ICON.search, 24)
+    favBtn:SetPoint("LEFT", search, "RIGHT", 6, 0)
+    if not pcall(favBtn.icon.SetAtlas, favBtn.icon, "auctionhouse-icon-favorite") then
+        favBtn.icon:SetTexture("Interface\Icons\Achievement_General")
+    end
+    favBtn:SetTip(L["Favourites"], L["Show only your favourites."])
+    favBtn:SetScript("OnClick", function()
+        local first = Lists()[1]
+        local id = first and first.id or 1
+        if state.list == id then state.list = nil else state.list = id end
+        T.Filters()
+        Dirty()
+    end)
+    T.favBtn = favBtn
 
     local category = W.NewMenuButton(panel, dd, L["Category"], W.ICON.loot)
     category:SetPoint("LEFT", search, "RIGHT", 8, 0)
@@ -1547,12 +1747,14 @@ local function Build()
     end)
 
     for _, b in ipairs({ category, levelBtn, profession, rarityBtn, lists, offerBtn, options, charsBtn, placeBtn }) do b.clickOnly = true end
-    for _, w in ipairs({ search, category, levelBtn, profession, rarityBtn, lists, offerBtn, charsBtn, placeBtn, dealsT, deT, clearBtn }) do
+    for _, w in ipairs({ category, levelBtn, profession, rarityBtn, lists, offerBtn, charsBtn, placeBtn, dealsT, deT, clearBtn }) do
         w:SetParent(side)
     end
 
     T.dd = dd
     function T.Filters()
+        local first = Lists()[1]
+        favBtn:SetActive(state.list ~= nil and first ~= nil and state.list == first.id)
         category:SetContent(CategoryLabel(), W.ICON.loot, CategoryRows, state.class ~= nil)
         local lv = state.level
         levelBtn:SetContent(lv and ((lv[1] == 0 and (L["Usable at level %d"]):format(lv[2])) or (L["Level %d–%d"]):format(lv[1], lv[2])) or L["Level"],
@@ -1590,7 +1792,7 @@ local function Build()
     T.Filters()
 
     count = panel:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-    count:SetPoint("RIGHT", scanBtn, "LEFT", -14, 0)
+    count:SetPoint("RIGHT", options, "LEFT", -14, 0)
     count:SetTextColor(unpack(C.muted))
     indexNote = panel:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
     indexNote:SetPoint("RIGHT", count, "LEFT", -14, 0)
@@ -1598,6 +1800,9 @@ local function Build()
     scanNote:SetPoint("RIGHT", indexNote, "LEFT", -14, 0)
     scanNote:SetTextColor(0.78, 0.62, 0.28)
     indexNote:SetTextColor(C.goldDim[1], C.goldDim[2], C.goldDim[3])
+    count:Hide()      -- (these three only hold their texts: the one line of the footer, "status", shows them all)
+    indexNote:Hide()
+    scanNote:Hide()
 
     -- column heads (click to sort); one set per view, as the same column can be called differently
     heads = {}
@@ -1638,7 +1843,7 @@ local function Build()
 
     function T.AnchorHeads()
         for _, h in pairs(heads) do h:Hide() end
-        if state.view == "dash" then return end
+        if T.IsPage(state.view) then return end
         for ci, col in ipairs(Cols(state.view)) do
             local h = heads[state.view .. ":" .. col[1]]
             h:ClearAllPoints()
@@ -1647,12 +1852,15 @@ local function Build()
             h:Show()
         end
         heads.name:ClearAllPoints()
-        heads.name:SetPoint("TOPLEFT", left0 + 44, -headY)
+        heads.name:SetPoint("TOPLEFT", left0 + 44 + T.LocW(), -headY)
         heads.name:SetPoint("TOPRIGHT", panel, "TOPRIGHT", -(K.LIST_RIGHT + ColsWidth(state.view) + 8), -headY)
         heads.name:Show()
     end
 
     function T.ApplyView()
+        if T.sell then T.sell:Close() end
+        if T.buy then T.buy:Close() end
+        if T.craft then T.craft:Close() end
         T.SyncSearch()
         for v, b in pairs(viewButtons) do b:SetSelected(state.view == v) end
         for _, h in pairs(heads) do h:Hide() end
@@ -1679,19 +1887,16 @@ local function Build()
         t:SetColorTexture(C.goldDim[1], C.goldDim[2], C.goldDim[3], 0.55)
         return t
     end
-    local rule = Rule() -- under the views
+    local rule = Rule() -- under the first row (search and filter)
     rule:SetPoint("TOPLEFT", 8, -40)
     rule:SetPoint("TOPRIGHT", -8, -40)
     rule:SetHeight(1)
+    T.topRule = rule
     rule = Rule() -- between the column and the list
     rule:SetPoint("TOPLEFT", clip, "TOPRIGHT", 3, 0)
     rule:SetPoint("BOTTOMLEFT", clip, "BOTTOMRIGHT", 3, 0)
     rule:SetWidth(1)
     local sideRule = rule
-    rule = Rule() -- above the scan strip
-    rule:SetPoint("BOTTOMLEFT", 8, 40)
-    rule:SetPoint("BOTTOMRIGHT", -8, 40)
-    rule:SetHeight(1)
 
     -- the list and its scroll bar
     scroll = CreateFrame("ScrollFrame", nil, panel)
@@ -1754,12 +1959,9 @@ local function Build()
     listCoverF:SetPoint("TOPLEFT", line, "TOPLEFT", 0, 24)
     listCoverF:SetPoint("BOTTOMRIGHT", track, "BOTTOMRIGHT", 0, 0)
     listCoverF:SetFrameLevel(scroll:GetFrameLevel() + 40)
-    local listCover = listCoverF:CreateTexture(nil, "OVERLAY")
-    listCover:SetAllPoints()
-    listCover:SetColorTexture(C.page[1], C.page[2], C.page[3], 1)
-    listCoverF:SetAlpha(0)
+    -- (no cover with a colour of its own: the table is emptied by fading its parts out, and "Loading…" is written on the bare panel)
     local loadingText = listCoverF:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
-    loadingText:SetPoint("TOP", listCoverF, "TOP", 0, -70)
+    loadingText:SetPoint("TOP", scroll, "TOP", 0, -50)
     loadingText:SetTextColor(unpack(C.muted))
     loadingText:SetText(L["Loading…"])
     loadingText:Hide()
@@ -1795,7 +1997,9 @@ local function Build()
             listC = math.max(0, listC - dt * 6)
             if listC <= 0 then trans = nil end
         end
-        listCoverF:SetAlpha(listC)
+        local a = 1 - listC
+        scroll:SetAlpha(a); track:SetAlpha(a); thumb:SetAlpha(a); line:SetAlpha(a); dash:SetAlpha(a); shop:SetAlpha(a); ownPage:SetAlpha(a)
+        for _, h in pairs(heads) do h:SetAlpha(a) end
         loadingText:SetShown(trans ~= nil and trans.phase == "hold" and job ~= nil and listC >= 1)
     end
 
@@ -1806,7 +2010,7 @@ local function Build()
         -- (when the column is away the table is close to the arrow; the gap to the column's line comes with its width)
         local open = math.min(1, math.max(0, (sideX - K.HIDDEN) / (K.OPEN - K.HIDDEN)))
         left0 = Snap(sideX + 6 + 9 * open)
-        sideRule:SetShown(sideX > K.HIDDEN + 6 and state.view ~= "dash")
+        sideRule:SetShown(sideX > K.HIDDEN + 6 and not T.IsPage(state.view))
         line:ClearAllPoints()
         line:SetPoint("TOPLEFT", left0, -(listTop - 2))
         line:SetPoint("TOPRIGHT", -8, -(listTop - 2))
@@ -1837,10 +2041,7 @@ local function Build()
         -- The rhythm of the column: every control 24 high, 6 between them, a little more before the switches; they stand 5 from
         -- the column's edge (8 from the window's), as the lines do, and as wide as the column less the same room on the right.
         local GAP, H, CW = 6, 24, K.OPEN - 10
-        search:ClearAllPoints()
-        search:SetSize(CW, H)
-        search:SetPoint("TOPLEFT", side, "TOPLEFT", 5, 0)
-        local y = H + GAP
+        local y = 0
         for _, b in ipairs(order) do
             b:SetSize(CW, H)
             b.text:ClearAllPoints()
@@ -1869,13 +2070,19 @@ local function Build()
         clearBtn:SetShown(T.anyFilter and true or false)
         sideBtn:SetSelected(pinned)
         -- the dashboard has no filters and no table: the column, its strip and the table's parts are not there
-        local isDash = state.view == "dash"
+        local isDash = T.IsPage(state.view)
         clip:SetShown(not isDash)
+        search:SetShown(not isDash)
+        T.favBtn:SetShown(not isDash)
+        T.checkBtn:SetShown(state.view == "profit")
+        if T.topRule then T.topRule:SetShown(not isDash) end
         sideBtn:SetShown(not isDash)
         scroll:SetShown(not isDash)
         track:SetShown(not isDash)
         line:SetShown(not isDash)
-        dash:SetShown(isDash)
+        dash:SetShown(state.view == "dash")
+        shop:SetShown(state.view == "shop")
+        ownPage:SetShown(state.view == "own")
         if isDash then handle:Hide() else SetSideX(sideX) end
         sideBtn.text:SetText(L["Filters"] .. ((not pinned and T.anyFilter) and " •" or ""))
         T.ListEdge()
@@ -1885,7 +2092,7 @@ local function Build()
     -- search is typed in, and shrinks back after a moment without any of that; the table's left edge moves with it.
     local function SideStep(dt)
         TransStep(dt)
-        if ns.db.settings.ahPin == true or state.view == "dash" then return end
+        if ns.db.settings.ahPin == true or T.IsPage(state.view) then return end
         local over = handle:IsMouseOver() or clip:IsMouseOver()
         local menuOpen = dd:IsShown() and dd.owner and dd.owner:GetParent() == side
         if over or menuOpen or search:HasFocus() then
@@ -1920,10 +2127,28 @@ local function Build()
         else
             scanNote:SetText("")
         end
+        -- one line: the scan (or the state of the data), what is being read, the count of the list
+        local parts = {}
+        local checked, checkTotal = ns.AuctionSell.Progress()
+        if checked then
+            parts[1] = (L["Checking prices… %d of %d"]):format(checked, checkTotal)
+            status:SetTextColor(0.78, 0.62, 0.28)
+        elseif phase then
+            parts[1] = scanNote:GetText()
+            status:SetTextColor(0.78, 0.62, 0.28)
+        else
+            parts[1] = panel.stateText
+            status:SetTextColor(unpack(C.muted))
+        end
+        for _, fs in ipairs({ indexNote, count }) do
+            local t = fs:GetText()
+            if t and t ~= "" then parts[#parts + 1] = t end
+        end
+        status:SetText(table.concat(parts, "   ·   "))
         acc = acc + dt
         if acc < 0.4 then return end
         acc = 0
-        status:SetText(phase and "" or ns.AH.Status())
+        panel.stateText = ns.AH.Status()
         local was = panel.scanning
         panel.scanning = ns.AH.Scanning()
         scanBtn:SetAlpha((not panel.scanning and (not ns.AH.IsOpen() or ns.AH.CooldownLeft() > 0)) and 0.5 or 1)
@@ -1954,17 +2179,19 @@ local function Select()
     AuctionHouseFrame.displayMode = nil
     for _, t in ipairs(AuctionHouseFrame.Tabs) do PanelTemplates_DeselectTab(t) end
     PanelTemplates_SelectTab(tab)
-    if AuctionHouseFrame.SetTitle then AuctionHouseFrame:SetTitle(L["Forever Codex"]) end
+    if AuctionHouseFrame.SetTitle then AuctionHouseFrame:SetTitle(L["Forever Companion"]) end
+    T.PlacePanel(AuctionHouseFrame) -- (the page may have been in the window)
+    if ns.AuctionWindow then ns.AuctionWindow.Hide() end
     panel:Show()
 end
 
 local function Create()
     if created or not (AuctionHouseFrame and AuctionHouseFrame.Tabs and #AuctionHouseFrame.Tabs > 0) then return end
     created = true
-    Build()
+    if panel then T.PlacePanel(AuctionHouseFrame) else Build(AuctionHouseFrame) end -- (it may be built already, for the window)
     local last = AuctionHouseFrame.Tabs[#AuctionHouseFrame.Tabs]
-    tab = CreateFrame("Button", "ForeverCodexAuctionTabButton", AuctionHouseFrame, "AuctionHouseFrameDisplayModeTabTemplate")
-    tab:SetText(L["Codex"])
+    tab = CreateFrame("Button", "ForeverCompanionAuctionTabButton", AuctionHouseFrame, "AuctionHouseFrameDisplayModeTabTemplate")
+    tab:SetText(L["Companion"])
     PanelTemplates_TabResize(tab, 20, nil, 70)
     tab:SetPoint("TOPLEFT", last, "TOPRIGHT", OFFSET_X, 0)
     tab:SetHitRectInsets((math.abs(OFFSET_X) - 3) / 2, (math.abs(OFFSET_X) - 3) / 2, 0, 0)
@@ -1973,12 +2200,15 @@ local function Create()
     T.Prewarm()
     -- the game's own tabs take over again: hide our page
     hooksecurefunc(AuctionHouseFrame, "SetDisplayMode", function(_, mode)
-        if mode ~= nil and #mode > 0 and panel:IsShown() then
+        if mode ~= nil and #mode > 0 and panel:IsShown() and panel:GetParent() == AuctionHouseFrame then
             panel:Hide()
             PanelTemplates_DeselectTab(tab)
         end
     end)
-    AuctionHouseFrame:HookScript("OnHide", function() panel:Hide(); PanelTemplates_DeselectTab(tab) end)
+    AuctionHouseFrame:HookScript("OnHide", function()
+        if panel:GetParent() == AuctionHouseFrame then panel:Hide() end
+        PanelTemplates_DeselectTab(tab)
+    end)
 end
 
 local events = CreateFrame("Frame")
@@ -1989,7 +2219,116 @@ events:SetScript("OnEvent", function()
         if not ok then
             created = true -- do not try again every time
             -- say so (once): a tab that silently does not appear is worse than a message
-            print("|cffffd100ForeverCodex:|r auction tab could not be built: " .. tostring(err))
+            print("|cffffd100ForeverCompanion:|r auction tab could not be built: " .. tostring(err))
+        end
+        -- the Companion tab is the first one that is shown (a setting, on unless switched off): after a moment, when the game has set its own
+        if tab and panel and ns.db.settings.ahOpenCodex ~= false then
+            C_Timer.After(0.15, function()
+                if AuctionHouseFrame and AuctionHouseFrame:IsShown() then pcall(Select) end
+            end)
         end
     end)
 end)
+
+-- The window of the addon with the same page (when the auction house is closed): the prices of the last scan, the lists, the trends, the
+-- shopping list and the history. Buying and selling need the auction house: the panels say so. With the auction house open the tab is used.
+local win
+local AW = {}
+ns.AuctionWindow = AW
+
+local function BuildWindow()
+    win = W.NewPlate(UIParent, C.page)
+    win:SetSize(1010, 700)
+    win:SetPoint("CENTER")
+    win:SetFrameStrata("MEDIUM")
+    win:SetToplevel(true)
+    win:SetMovable(true)
+    win:SetClampedToScreen(true)
+    win:EnableMouse(true)
+    win:RegisterForDrag("LeftButton")
+    win:SetScript("OnDragStart", win.StartMoving)
+    -- place and scale are kept
+    local function SaveWin()
+        if not ns.db then return end
+        local point, _, rel, x, y = win:GetPoint()
+        ns.db.ahWin = { pos = { point, rel, x, y }, scale = win:GetScale() }
+    end
+    win:SetScript("OnDragStop", function(self) self:StopMovingOrSizing(); SaveWin() end)
+    local saved = ns.db and ns.db.ahWin
+    if saved then
+        if saved.scale then win:SetScale(math.max(0.6, math.min(1.6, saved.scale))) end
+        if saved.pos then
+            win:ClearAllPoints()
+            win:SetPoint(saved.pos[1], UIParent, saved.pos[2], saved.pos[3], saved.pos[4])
+        end
+    end
+    -- the corner grip scales the whole window (its layout is fixed)
+    local grip = CreateFrame("Button", nil, win)
+    grip:SetSize(16, 16)
+    grip:SetPoint("BOTTOMRIGHT", -3, 3)
+    grip:SetFrameLevel(win:GetFrameLevel() + 50)
+    grip:SetNormalTexture("Interface\\ChatFrame\\UI-ChatIM-SizeGrabber-Up")
+    grip:SetHighlightTexture("Interface\\ChatFrame\\UI-ChatIM-SizeGrabber-Highlight")
+    grip:SetPushedTexture("Interface\\ChatFrame\\UI-ChatIM-SizeGrabber-Down")
+    W.AttachScaleGrip(win, grip, { scaleOnly = true, minScale = 0.6, maxScale = 1.6, gridScale = 0.05, saveScale = SaveWin, savePos = SaveWin })
+    win:Hide()
+    _G.ForeverCompanionAuctionWindow = win
+    tinsert(UISpecialFrames, "ForeverCompanionAuctionWindow")
+    local close = W.NewButton(win, "×", 20, 20, "GameFontNormal")
+    close:SetPoint("TOPRIGHT", -8, -8)
+    close:SetScript("OnClick", function() win:Hide() end)
+    win.closeBtn = close
+    win.skinRowAll = {} -- (the round icon opens the menu of the other windows)
+    win.skinKey = "ah"
+    win.titleText = win:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
+    win.titleText:SetPoint("TOP", 0, -12)
+    win.titleText:SetText(L["Auction house"])
+    win.titleText:SetTextColor(C.gold[1], C.gold[2], C.gold[3])
+    win:SetScript("OnHide", function(self)
+        if panel and panel:GetParent() == self then panel:Hide() end
+    end)
+end
+
+function AW.ApplyFrameStyle()
+    if not win then return end
+    local blizz = W.BlizzSkin(win, true, W.ICON.coin, L["Auction house"], "ah")
+    if blizz then
+        win:SetBackdrop(nil)
+    else
+        win:SetBackdrop(W.PLATE_BACKDROP)
+        win:SetBackdropColor(unpack(C.page))
+        win:SetBackdropBorderColor(C.goldDim[1], C.goldDim[2], C.goldDim[3], 1)
+    end
+    win.titleText:SetShown(not blizz)
+    if panel and panel:GetParent() == win then T.PlacePanel(win) end -- (the place of the page depends on the style)
+end
+
+function AW.Hide() if win and win:IsShown() then win:Hide() end end
+function AW.ResetWindow()
+    if ns.db then ns.db.ahWin = nil end
+    if win then
+        win:SetScale(1)
+        win:ClearAllPoints()
+        win:SetPoint("CENTER")
+    end
+end
+function AW.IsShown() return win and win:IsShown() end
+
+function AW.Show()
+    -- with the auction house open the page is in its tab
+    if created and tab and AuctionHouseFrame and AuctionHouseFrame:IsShown() then Select() return end
+    if not win then BuildWindow() end
+    if not panel then Build(win) end
+    T.PlacePanel(win)
+    AW.ApplyFrameStyle()
+    win:Show()
+    panel:Show()
+    win:Raise()
+end
+
+function AW.Toggle()
+    if win and win:IsShown() then win:Hide() else AW.Show() end
+end
+
+SLASH_FOREVERCOMPANIONAH1 = "/fcah"
+SlashCmdList.FOREVERCOMPANIONAH = function() AW.Toggle() end

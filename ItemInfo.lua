@@ -124,8 +124,8 @@ local function Build()
     f:SetScript("OnDragStart", f.StartMoving)
     f:SetScript("OnDragStop", f.StopMovingOrSizing)
     f:Hide()
-    _G.ForeverCodexItemInfo = f
-    tinsert(UISpecialFrames, "ForeverCodexItemInfo")
+    _G.ForeverCompanionItemInfo = f
+    tinsert(UISpecialFrames, "ForeverCompanionItemInfo")
 
     local close = W.NewButton(f, "×", 20, 20, "GameFontNormal")
     close:SetPoint("TOPRIGHT", -8, -8)
@@ -228,8 +228,7 @@ local function Build()
                 end
                 local pname, q
                 if e.item > 0 then
-                    local n, _, qq = GetInfo(e.item)
-                    pname, q = n, qq
+                    pname, q = W.ItemData(e.item)
                 end
                 local rname = pname or SpellName(e.spell) or ("spell:" .. e.spell)
                 local recs = e.item > 0 and self.knownBy[e.item] or nil
@@ -263,7 +262,7 @@ local function Build()
 
     function f:SetItem(id)
         self.id = id
-        local name, _, q, _, _, _, _, _, _, icon = GetInfo(id)
+        local name, q, icon = W.ItemData(id)
         if not name and C_Item and C_Item.RequestLoadItemDataByID then
             pcall(C_Item.RequestLoadItemDataByID, id)
             C_Timer.After(1, function() if self:IsShown() and self.id == id then self:SetItem(id) end end)
@@ -293,7 +292,7 @@ local frame
 -- the window style of the settings: the game's own frame, or the plate (the same as the other windows)
 function I.ApplyFrameStyle()
     if not frame then return end
-    local blizz = W.BlizzSkin(frame, (ns.db and ns.db.settings.frameStyle) == "blizzard", nil, L["Recipes"])
+    local blizz = W.BlizzSkin(frame, true, nil, L["Recipes"])
     if blizz then
         frame:SetBackdrop(nil)
     else

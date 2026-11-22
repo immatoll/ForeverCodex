@@ -22,7 +22,7 @@ ns.HUD = HUD
 -- In the Blizzard style the cards sit at the top of the window with pause and end beside them (the room above them is not needed: the
 -- round icon and the buttons of the other windows are in the title bar). This is decided when the addon loads (a change of the window
 -- style needs a reload for this window).
-HUD.compact = ((ns.db or {}).settings or {}).frameStyle == "blizzard"
+HUD.compact = true
 
 local DEFAULT_W, DEFAULT_H = HUD.compact and 560 or 520, 470 -- (the compact layout has less room for the cards: a little wider)
 local MIN_W, MIN_H, MAX_W, MAX_H = 320, 280, 820, 900
@@ -111,7 +111,7 @@ local function SortState()
 end
 function U.TotalTitle() return L["Count"] end
 
-local f = CreateFrame("Frame", "ForeverCodexHUD", UIParent, W.TEMPLATE)
+local f = CreateFrame("Frame", "ForeverCompanionHUD", UIParent, W.TEMPLATE)
 HUD.frame = f
 f:SetSize(DEFAULT_W, DEFAULT_H)
 f:SetPoint("RIGHT", UIParent, "RIGHT", -40, 0)
@@ -145,8 +145,8 @@ fill:SetAllPoints()
 fill:SetColorTexture(0.055, 0.045, 0.038, 1)
 
 function HUD.ApplyFrameStyle()
-    local ornate = (ns.db and ns.db.settings.frameStyle or "ornate") == "ornate"
-    local blizz = W.BlizzSkin(f, (ns.db and ns.db.settings.frameStyle or "ornate") == "blizzard", W.ICON.session, nil, "hud")
+    local ornate = false
+    local blizz = W.BlizzSkin(f, true, W.ICON.session, nil, "hud")
     deco:SetShown(ornate)
     fill:SetShown(ornate)
     if ornate or blizz then
@@ -212,9 +212,9 @@ pausedLabel:SetPoint("TOP", title, "BOTTOM", 0, -1)
 local applyFrameStyle = HUD.ApplyFrameStyle
 function HUD.ApplyFrameStyle()
     applyFrameStyle()
-    local blizzOn = W.BlizzSkin(f, (ns.db and ns.db.settings.frameStyle or "ornate") == "blizzard", W.ICON.session, title:GetText(), "hud")
+    local blizzOn = W.BlizzSkin(f, true, W.ICON.session, title:GetText(), "hud")
     title:SetAlpha(blizzOn and 0 or 1) -- (the frame's own title is shown instead)
-    local ornate = (ns.db and ns.db.settings.frameStyle or "ornate") == "ornate"
+    local ornate = false
     banner:SetShown(ornate)
     title:ClearAllPoints()
     pausedLabel:ClearAllPoints()
@@ -367,7 +367,7 @@ if HUD.compact then
         U.alarmText:SetTextColor(0.93, 0.65, 0.37)
         U.alarmText:SetText(L["Timer is up!"])
         pcall(PlaySound, (SOUNDKIT and SOUNDKIT.ALARM_CLOCK_WARNING_3) or 12867)
-        print("|cffffd100Forever Codex:|r " .. L["Timer is up!"])
+        print("|cffffd100Forever Companion:|r " .. L["Timer is up!"])
         if RaidNotice_AddMessage and RaidWarningFrame and ChatTypeInfo then
             pcall(RaidNotice_AddMessage, RaidWarningFrame, L["Timer is up!"], ChatTypeInfo["RAID_WARNING"])
         end
@@ -381,7 +381,7 @@ if HUD.compact then
     end
     if ns.db and ns.db.hudAlarmEnd then U.AlarmStart(ns.db.hudAlarmEnd - time()) end -- (kept over a reload; one that ran out meanwhile goes off now)
 
-    StaticPopupDialogs["FOREVERCODEX_ALARM"] = {
+    StaticPopupDialogs["FOREVERCOMPANION_ALARM"] = {
         text = L["Minutes:"], button1 = ACCEPT, button2 = CANCEL, hasEditBox = 1, timeout = 0, whileDead = 1, hideOnEscape = 1,
         OnShow = function(self) (self.editBox or self.EditBox):SetText("10"); (self.editBox or self.EditBox):HighlightText() end,
         OnAccept = function(self) U.AlarmStart((tonumber((self.editBox or self.EditBox):GetText()) or 0) * 60) end,
@@ -395,7 +395,7 @@ if HUD.compact then
         for _, m in ipairs({ 5, 10, 15, 20, 30, 45, 60 }) do
             out[#out + 1] = { kind = "action", label = L["%d min"]:format(m), close = true, onClick = function() U.AlarmStart(m * 60) end }
         end
-        out[#out + 1] = { kind = "action", label = L["Own time…"], close = true, onClick = function() StaticPopup_Show("FOREVERCODEX_ALARM") end }
+        out[#out + 1] = { kind = "action", label = L["Own time…"], close = true, onClick = function() StaticPopup_Show("FOREVERCOMPANION_ALARM") end }
         if ns.db.hudAlarmEnd or U.alarmDone then
             out[#out + 1] = { kind = "separator" }
             out[#out + 1] = { kind = "action", label = L["Stop timer"], close = true, onClick = function() U.AlarmStart(nil) end }
@@ -904,7 +904,7 @@ local function NewDetail()
         if spot then
             ns.Routes.GoTo(gm.name or self.srcKey, spot, gm.zone)
         else
-            print("|cffffd100ForeverCodex:|r " .. L["No saved spots yet."])
+            print("|cffffd100ForeverCompanion:|r " .. L["No saved spots yet."])
         end
     end)
     d.mapBtn = W.NewIconButton(d, W.ICON.map, 22)
@@ -955,9 +955,6 @@ local function NewItemRow()
     r.avg = r:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
     r.avg:SetJustifyH("RIGHT")
     r.avg:SetTextColor(0.72, 0.66, 0.54)
-    r:SetScript("OnClick", function(self)
-        if self.itemID and self.itemID ~= "money" then ns.UI.OpenEntry("loot", self.itemID) end
-    end)
     return r
 end
 
@@ -2174,7 +2171,7 @@ local function NewBoardRow()
         if spot then
             ns.Routes.GoTo(gm.name or key, spot, gm.zone)
         else
-            print("|cffffd100ForeverCodex:|r " .. L["No saved spots yet."])
+            print("|cffffd100ForeverCompanion:|r " .. L["No saved spots yet."])
         end
     end)
     r.mapBtn = W.NewIconButton(r, W.ICON.map, 20)
@@ -2357,7 +2354,7 @@ local function MakeAutoRoute(startNav)
     if not plan then return end
     local route = ns.Spots.CreateRoute(plan, routePanel.planName)
     if startNav then ns.Routes.StartNav(route, 1) end
-    print("|cffffd100ForeverCodex:|r " .. L["Route created: %s"]:format(routePanel.planName))
+    print("|cffffd100ForeverCompanion:|r " .. L["Route created: %s"]:format(routePanel.planName))
 end
 routePanel.create:SetScript("OnClick", function() MakeAutoRoute(false) end)
 routePanel.go:SetScript("OnClick", function() MakeAutoRoute(true) end)
@@ -2880,6 +2877,7 @@ end
 
 f:SetScript("OnUpdate", function(_, elapsed)
     W.Step(elapsed)
+    if f.fcMoving then return end -- (nothing is drawn again while the window is dragged: it follows the mouse without a hitch)
     U.PausePulse()
     acc = acc + elapsed
     if (dirty and acc > 0.05) or acc > 1 then

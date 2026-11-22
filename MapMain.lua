@@ -12,8 +12,9 @@ ns.MapMain = Main
 
 local DEFAULT_W, DEFAULT_H = 800, 560
 local MIN_W, MIN_H, MAX_W, MAX_H = 560, 380, 2400, 1500
-local BAR_TOP = 44  -- the toolbar row, below the banner
-local MAP_TOP = 76  -- the filter and the map
+local BAR_TOP = -24 -- the toolbar row: in the strip under the title bar of the Blizzard frame (above the window's top edge)
+local BAR_LEFT = 56 -- (right of the ring with the icon)
+local MAP_TOP = 8   -- the filter and the map
 local BOTTOM = 16   -- room for the resize grip
 local EDGE = 8
 local BAR_BTN = 22
@@ -22,7 +23,7 @@ local MUTED_TXT = W.Hex(C.muted)
 local state = { scope = "all", sources = {}, mapID = nil, ids = {}, counts = {}, shown = nil, started = false, full = false }
 local dirty = true
 
-local f = CreateFrame("Frame", "ForeverCodexMap", UIParent, W.TEMPLATE)
+local f = CreateFrame("Frame", "ForeverCompanionMap", UIParent, W.TEMPLATE)
 Main.frame = f
 f:SetSize(DEFAULT_W, DEFAULT_H)
 f:SetPoint("CENTER", UIParent, "CENTER", -60, 0)
@@ -65,8 +66,8 @@ title:SetText(L["Loot map"])
 title:SetTextColor(1, 0.85, 0.4)
 
 function Main.ApplyFrameStyle()
-    local ornate = (ns.db and ns.db.settings.frameStyle or "ornate") == "ornate"
-    local blizz = W.BlizzSkin(f, (ns.db and ns.db.settings.frameStyle or "ornate") == "blizzard", W.ICON.map, title:GetText(), "map")
+    local ornate = false
+    local blizz = W.BlizzSkin(f, true, W.ICON.map, title:GetText(), "map")
     title:SetAlpha(blizz and 0 or 1) -- (the frame's own title is shown instead)
     deco:SetShown(ornate)
     fill:SetShown(ornate)
@@ -155,7 +156,7 @@ W.AttachScaleGrip(f, grip, {
 
 -- toolbar -----------------------------------------------------------------------------
 local prev = W.NewIconButton(f, "Interface\\Buttons\\UI-SpellbookIcon-PrevPage-Up", BAR_BTN)
-prev:SetPoint("TOPLEFT", f, "TOPLEFT", EDGE + 2, -BAR_TOP)
+prev:SetPoint("TOPLEFT", f, "TOPLEFT", BAR_LEFT, -BAR_TOP)
 prev:SetTip(L["Previous zone"])
 local nextBtn = W.NewIconButton(f, "Interface\\Buttons\\UI-SpellbookIcon-NextPage-Up", BAR_BTN)
 nextBtn:SetPoint("LEFT", prev, "RIGHT", 3, 0)
@@ -748,7 +749,7 @@ end
 
 local function Layout()
     local w = f:GetWidth()
-    local free = w - (EDGE + 2) * 2 - (2 * BAR_BTN + 3) - 8 - RIGHT_W - 10
+    local free = w - (BAR_LEFT + EDGE + 2) - (2 * BAR_BTN + 3) - 8 - RIGHT_W - 10
     -- zone name, its count and the search share what is left; the search gives way last
     local zoneW = math.min(zoneBtn.text:GetStringWidth() + 4, math.max(80, free * 0.45))
     zoneBtn:SetWidth(zoneW)
@@ -839,6 +840,7 @@ end
 local acc = 0
 f:SetScript("OnUpdate", function(_, dt)
     W.Step(dt)
+    if f.fcMoving then return end -- (nothing is drawn again while the window is dragged: it follows the mouse without a hitch)
     acc = acc + dt
     if (dirty and acc > 0.05) or acc > 1 then
         acc, dirty = 0, false
@@ -915,6 +917,6 @@ loader:SetScript("OnEvent", function()
     if ns.db and ns.db.mapMainShown then Main.Show() end
 end)
 
-SLASH_FOREVERCODEXMAP1 = "/fcmap"
-SLASH_FOREVERCODEXMAP2 = "/fklmap"
-SlashCmdList.FOREVERCODEXMAP = function() Main.Toggle() end
+SLASH_FOREVERCOMPANIONMAP1 = "/fcmap"
+SLASH_FOREVERCOMPANIONMAP2 = "/fklmap"
+SlashCmdList.FOREVERCOMPANIONMAP = function() Main.Toggle() end

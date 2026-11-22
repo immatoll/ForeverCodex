@@ -4,7 +4,7 @@ local C = W.C
 
 -- The measures a window's layout is made of, in one place (kept per window group, e.g. "hud" for Kills & Loot), so that they can be
 -- looked at and changed together instead of being numbers in the code of each window. A value changed here is kept in the saved
--- variables (ForeverCodexDB.theme.<group>.<key>) and is used when the windows are built, that is after a reload.
+-- variables (ForeverCompanionDB.theme.<group>.<key>) and is used when the windows are built, that is after a reload.
 -- A window reads its measures with ns.Theme.Get(group, key). /fctheme opens the developer window to change them.
 
 local T = {}
@@ -31,8 +31,25 @@ T.defaults = {
 -- What was set in the window designer (/fcbg) and exported (the button "Export" of /fctheme) is pasted here and is then the default of the
 -- code: T.skins per window (background, how it lies, icon, transparency), T.design for the window style settings. What a user sets
 -- himself on top of it (ns.db.settings) wins.
-T.skins = {}
-T.design = {}
+T.skins = {
+    account = { icon = { atlas = "gamepad-radial-icon-character" } },
+    all = { bgTex = { atlas = "Professions-background-summarylist" } },
+    hud = {
+        bgMode = "stretch",
+        bgTex = { atlas = "Professions-background-summarylist" },
+        icon = { atlas = "gamepad-radial-icon-groupfinder" },
+    },
+    journal = { icon = { atlas = "gamepad-radial-icon-questlog-up" } },
+    map = { icon = { atlas = "gamepad-radial-icon-fullmap-up" } },
+    settings = { icon = { atlas = "gamepad-radial-icon-gamemenu2" } },
+}
+T.design = {
+    frameStyle = "blizzard",
+    blizzBg = "standard",
+    blizzBgMode = "zoom",
+    blizzBgTex = { atlas = "Professions-MinimizedView-Background" },
+    panelAlpha = 1,
+}
 
 -- how the developer window shows them: key, label, step, smallest, largest
 T.meta = {
@@ -54,7 +71,7 @@ T.meta = {
 T.groupLabel = { hud = "Kills & Loot" }
 
 local function Saved(group, key)
-    local db = ns.db or _G.ForeverCodexDB -- (the saved variables are there from ADDON_LOADED on: a window reads its measures through ns.AfterLoad)
+    local db = ns.db or _G.ForeverCompanionDB -- (the saved variables are there from ADDON_LOADED on: a window reads its measures through ns.AfterLoad)
     local g = db and db.theme and db.theme[group]
     return g and g[key]
 end
@@ -66,7 +83,7 @@ function T.Get(group, key)
 end
 
 local function Set(group, key, value)
-    local db = ns.db or _G.ForeverCodexDB
+    local db = ns.db or _G.ForeverCompanionDB
     if not db then return end
     db.theme = db.theme or {}
     db.theme[group] = db.theme[group] or {}
@@ -205,8 +222,8 @@ function T.Export()
     return table.concat(out, "\n")
 end
 
-SLASH_FOREVERCODEXTHEME1 = "/fctheme"
-SlashCmdList.FOREVERCODEXTHEME = function()
+SLASH_FOREVERCOMPANIONTHEME1 = "/fctheme"
+SlashCmdList.FOREVERCOMPANIONTHEME = function()
     if not win then win = Build() end
     if win:IsShown() then win:Hide() return end
     Refresh()
