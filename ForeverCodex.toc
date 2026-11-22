@@ -1,0 +1,44 @@
+## Interface: 16001
+## Title: Forever Codex
+## Notes: Die Forever-Suite: Beute und Kills, Karte, Account-Übersicht aller Charaktere, Preise und Tooltips.
+## Author: Christian Remy
+## Version: 0.1.0
+## SavedVariables: ForeverCodexDB, ForeverKillLogDB
+## IconTexture: Interface\AddOns\ForeverCodex\Media\logo
+
+Libs\LibStub\LibStub.lua
+Libs\CallbackHandler-1.0\CallbackHandler-1.0.lua
+Libs\LibDataBroker-1.1\LibDataBroker-1.1.lua
+Libs\LibDBIcon-1.0\LibDBIcon-1.0.lua
+
+Locale.lua
+Value.lua
+Core.lua
+Account.lua
+AuctionScan.lua
+Tooltip.lua
+Widgets.lua
+Theme.lua
+Dropdown.lua
+Data\MapOverlays.lua
+Data\Recipes.lua
+Data\Disenchant.lua
+MapView.lua
+UI.lua
+SessionHUD.lua
+PageSources.lua
+PageLoot.lua
+PageSearch.lua
+PageHistory.lua
+PageStats.lua
+Routes.lua
+Spots.lua
+MapMain.lua
+AccountWindow.lua
+MapWindow.lua
+SettingsWindow.lua
+AuctionDashboard.lua
+ItemInfo.lua
+BgPicker.lua
+AuctionTab.lua
+Minimap.lua

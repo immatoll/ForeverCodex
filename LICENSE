@@ -1,0 +1,20 @@
+Copyright (c) 2026 Christian Remy. All rights reserved.
+
+This software and its source code (everything in this repository except the
+third-party libraries in the Libs folder) are proprietary. No permission is
+granted to use, copy, modify, merge, publish, distribute, sublicense, or sell
+copies of it, in whole or in part, without the prior written permission of the
+copyright holder.
+
+The source is publicly viewable only for reference. Viewing it does not grant
+any license to it.
+
+The libraries in the Libs folder are third-party works. They keep their own
+licenses and copyright holders; see Libs/THIRD_PARTY_NOTICES.txt. The terms
+above do not apply to them.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHOR BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY ARISING FROM, OUT OF
+OR IN CONNECTION WITH THE SOFTWARE OR ITS USE.
