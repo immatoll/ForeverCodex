@@ -6,27 +6,37 @@ An all-in-one companion suite for **WoW Forever** (Classic-era client, Interface
 kill and loot, values it, shows it on a map, and keeps track of all your characters, in one gilded-brown
 interface.
 
-> Formerly *ForeverKillLog*. Data saved by the old name is picked up automatically (see
-> [Upgrading](#upgrading-from-foreverkilllog)).
-
 ## Features
 
 - **Loot log per source**: kills, drops and gathering (mining, herbalism, skinning, fishing) are recorded per
   creature or node, with drop chances that firm up as the sample grows.
-- **Session HUD ("Kills & Loot")**: live totals, value per hour, best drops, goals, a Regionboard, and a
-  collapsible compact mode.
-- **Journal**: sources, loot, search, history and statistics.
+- **Kills & Loot window**: live totals, value per hour, XP, best drops, goals and a footer with the session time.
+- **Journal**: bestiary, gathering, item search, history and statistics.
 - **Map window**: heatmaps and markers of where things drop, filters with hover menus, creature search with
   grouped markers, saved spots and routes.
-- **Account window** (Altoholic-style): all characters with level, class, XP and rested bonus, location and
-  hearthstone, professions and recipes, equipment, bags and bank, mail, auctions, worth and gold. Item and
-  material search across characters, and a crafting view that shows what you can make and what you could still
-  learn.
-- **Prices**: vendor and auction values (Auctionator if present, or the built-in auction house scan with a
-  7-day price and supply trend).
-- **Tooltips**: items and creatures get grouped, individually switchable lines: prices, loot you got, where it
-  drops, crafting uses, which characters own it.
-- **Settings window** with categories and optional descriptions; English and German.
+- **Account window**: all characters with level, class, XP and rested bonus, location, professions and recipes,
+  equipment, bags and bank, mail, auctions, worth and gold. Item and material search across characters, and a
+  crafting view that shows what you can make and what you could still learn.
+- **Auction house**: a Companion tab (and a window of its own, `/fcah`) with a dashboard, price lists and trends,
+  recipes and crafting profit, a shopping list, your own auctions, and pages for buying and selling. Prices come
+  from your own scans (or Auctionator), with 7-day price, supply and demand trends. Reference data of one realm
+  is loaded at the first start so that there is something to look at before your first scan.
+- **Tooltips**: items, creatures and gathering nodes get grouped, individually switchable lines (prices, trend,
+  loot you got, where it drops, disenchanting, crafting, which characters own it, ...). The settings show a live
+  preview.
+- **Quick bar**: a small bar with one button per window; the minimap button shows and hides it.
+- **Settings** with groups, cards, a reset per page and descriptions as tooltips; English and German.
+- Everything is in the Blizzard window style.
+
+## Screenshots
+
+![Kills & Loot](Media/screenshots/kills-and-loot.png)
+
+![Loot map](Media/screenshots/loot-map.png)
+
+![Auction house](Media/screenshots/auction-house.png)
+
+![Account](Media/screenshots/account.png)
 
 ## Installation
 
@@ -39,20 +49,17 @@ interface.
 
 | Command | Opens |
 |---|---|
-| `/fc` or `/codex` | Main command (`/fc journal`, `/fc reset`, `/fc minimap`, ...; the chat help lists them) |
+| `/fc`, `/companion` or `/codex` | Main command (`/fc journal`, `/fc reset`, `/fc minimap`, ...; the chat help lists them) |
+| `/fcbar` | Quick bar (shown at the first start) |
 | `/fcmap` | Map window |
 | `/fcaccount` or `/fcalts` | Account window |
+| `/fcah` | Auction house window |
 | `/fcsettings` | Settings |
 | `/fcmini` | Mini map |
 
-Window corners can be dragged to resize. Ctrl scales, Shift keeps proportions, right-click centres the window
-(Shift + right-click: default size).
+Minimap button: click = quick bar, Shift + click = Kills & Loot, right-click = settings.
 
-## Upgrading from ForeverKillLog
-
-Close the game, then copy
-`WTF\Account\<ACCOUNT>\SavedVariables\ForeverKillLog.lua` to `ForeverCompanion.lua` in the same folder. The addon
-takes the old data over on first load. The old `/fkl` commands keep working.
+Windows are moved by their title bar. The corner grip of a window scales it.
 
 ## Notes
 

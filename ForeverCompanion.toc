@@ -2,7 +2,7 @@
 ## Title: Forever Companion
 ## Notes: Die Forever-Suite: Beute und Kills, Karte, Account-Übersicht aller Charaktere, Preise und Tooltips.
 ## Author: Christian Remy
-## Version: 0.1.0
+## Version: 0.0.1
 ## SavedVariables: ForeverCompanionDB, ForeverKillLogDB
 ## IconTexture: Interface\AddOns\ForeverCompanion\Media\logo
 
