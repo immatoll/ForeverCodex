@@ -30,13 +30,16 @@ interface.
 
 ## Screenshots
 
-![Kills & Loot](Media/screenshots/kills-and-loot.png)
-
-![Loot map](Media/screenshots/loot-map.png)
-
-![Auction house](Media/screenshots/auction-house.png)
-
-![Account](Media/screenshots/account.png)
+<table>
+  <tr>
+    <td align="center"><a href="Media/screenshots/kills-and-loot.png"><img src="Media/screenshots/kills-and-loot.png" alt="Kills &amp; Loot" width="380"></a><br><sub>Kills &amp; Loot</sub></td>
+    <td align="center"><a href="Media/screenshots/loot-map.png"><img src="Media/screenshots/loot-map.png" alt="Loot map" width="380"></a><br><sub>Loot map</sub></td>
+  </tr>
+  <tr>
+    <td align="center"><a href="Media/screenshots/auction-house.png"><img src="Media/screenshots/auction-house.png" alt="Auction house" width="380"></a><br><sub>Auction house</sub></td>
+    <td align="center"><a href="Media/screenshots/account.png"><img src="Media/screenshots/account.png" alt="Account" width="380"></a><br><sub>Account</sub></td>
+  </tr>
+</table>
 
 ## Installation
 
