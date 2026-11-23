@@ -40,7 +40,8 @@ T.skins = {
         bgTex = { atlas = "Professions-background-summarylist" },
         icon = { atlas = "gamepad-radial-icon-groupfinder" },
     },
-    journal = { icon = { atlas = "gamepad-radial-icon-questlog-up" } },
+    journal = { icon = { atlas = "gamepad-radial-icon-adventureguide-up" } },
+    recipes = { icon = { atlas = "gamepad-radial-icon-professions" } },
     map = { icon = { atlas = "gamepad-radial-icon-fullmap-up" } },
     settings = { icon = { atlas = "gamepad-radial-icon-gamemenu2" } },
 }

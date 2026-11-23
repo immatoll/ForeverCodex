@@ -493,9 +493,9 @@ local function ConsiderRecipe(key, entry, out)
         end
     end
     if state.sub and not (m and m.sub == state.sub) then return end
-    if state.slot then
+    if state.slot and m and m.class == 4 then -- (only armour has a slot to be worn at: other things pass)
         local hit = false
-        for _, loc in ipairs(SLOT_BY_KEY[state.slot] or {}) do if m and m.equip == loc then hit = true end end
+        for _, loc in ipairs(SLOT_BY_KEY[state.slot] or {}) do if m.equip == loc then hit = true end end
         if not hit then return end
     end
     if state.stock and not (id and Offer(id) == state.stock) then return end
@@ -551,6 +551,7 @@ end
 -- One item: counted for the category menu, then filtered and, if it passes, added to `out`.
 local function Consider(id, own, out, cnt, ccount)
     if state.view == "recipes" then return ConsiderRecipe(id, own, out) end
+    if plannedSet and not plannedSet[id] then return end -- ("Planned" is on: only what is meant for the auction house)
     local m = Meta(id)
     local ok = true
     if m.class then
@@ -573,7 +574,7 @@ local function Consider(id, own, out, cnt, ccount)
         end
     end
     if ok and state.sub and m.sub ~= state.sub then ok = false end
-    if ok and state.slot then
+    if ok and state.slot and m.class == 4 then -- (armour only)
         ok = false
         for _, loc in ipairs(SLOT_BY_KEY[state.slot] or {}) do if m.equip == loc then ok = true end end
     end
@@ -638,7 +639,7 @@ end
 local function Signature()
     local p = { state.view, tostring(state.sort), tostring(state.asc), state.query or "", tostring(state.class), tostring(state.sub),
         tostring(state.slot), state.level and (state.level[1] .. "-" .. state.level[2]) or "", tostring(state.stock),
-        tostring(state.list), state.prof and (state.prof.mode .. ":" .. state.prof.name) or "", tostring(state.deals), tostring(state.vsDE) }
+        tostring(state.list), state.prof and (state.prof.mode .. ":" .. state.prof.name) or "", tostring(state.deals), tostring(state.vsDE), tostring(state.view == "profit" and PlannedOn()) }
     for q = 0, 7 do p[#p + 1] = state.rarity[q] and "1" or "0" end
     if state.chars then
         local keys = {}
@@ -657,6 +658,15 @@ local function ResultsValid(view)
     return r and r.view == view and r.sig == Signature() and r.stamp == ns.AH.Time() and r.full and GetTime() - r.at < 30 or false
 end
 
+-- "Planned": in the sell view only what the bags manager has set aside for the auction house (rule "auction", or proposed by its list).
+-- Kept in the settings; it only counts while your own character is chosen (the manager looks at the bags of the character you play).
+local plannedSet
+local function PlannedOn()
+    if not (ns.db and ns.db.settings.ahPlanned ~= false and ns.Manager and ns.Manager.AuctionSet) then return false end
+    return state.chars and state.chars[ns.Acc.MyKey()] and true or false
+end
+T.PlannedOn = PlannedOn
+
 local function StartCollect()
     if T.IsPage(state.view) then job = nil; return end -- (a page has no list)
     -- the view of everything is the same until the next scan: its pool and id list are kept
@@ -674,6 +684,7 @@ local function StartCollect()
     poolVersion = poolVersion + 1
     collectStamp = ns.AH.Time()
     collectHave = (state.view == "recipes") and ns.Acc.Holdings(state.chars, state.places.bags, state.places.bank, false) or {}
+    plannedSet = (state.view == "profit" and PlannedOn()) and ns.Manager.AuctionSet() or nil
     collectLoc = nil
     if LocActive() then
         local me, others = ns.Acc.MyKey(), {}
@@ -815,6 +826,30 @@ if GameTooltip_ShowCompareItem then
     end)
 end
 
+-- The context menu of an item (right-click on a row): recipes, link, shopping list, lists. The overview page uses it too.
+local function ItemMenu(owner, id)
+    local _, link = GetInfo(id)
+    T.dd:Open(owner, function()
+        local rows = {
+            { kind = "header", label = Coloured(idx[id], "item:" .. id) },
+            { kind = "action", label = L["Recipes and professions…"], close = true,
+                onClick = function() if ns.ItemInfo then ns.ItemInfo.Show(id) end end },
+            { kind = "action", label = L["Link in chat"], close = true,
+                onClick = function() if link and ChatEdit_InsertLink then ChatEdit_InsertLink(link) end end },
+            { kind = "action", label = L["Add to shopping list"], close = true,
+                onClick = function() if ns.AuctionShop then ns.AuctionShop.Add(id, 1) end end },
+            { kind = "separator" },
+            { kind = "header", label = L["Lists"] },
+        }
+        for _, l in ipairs(Lists()) do
+            rows[#rows + 1] = { kind = "check", state = l.items[id] and "all" or "none", label = l.name,
+                onClick = function() l.items[id] = (not l.items[id]) or nil; T.Draw() end }
+        end
+        return rows
+    end, true) -- (at the mouse)
+end
+ns.AuctionItemMenu = function(owner, id) if T.dd and id then ItemMenu(owner, id) end end
+
 local function NewRow(i)
     local r = CreateFrame("Button", nil, content)
     r:SetHeight(ROW)
@@ -889,6 +924,41 @@ local function NewRow(i)
     r.codexRow = true
     r:SetScript("OnEnter", function(self)
         self.hl:Show()
+        if state.view == "recipes" and self.recipe then
+            -- a recipe (of any profession): what it makes (the item, or the enchantment as the game words it) and, below, its materials
+            local d = self.recipe
+            GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+            GameTooltip.fcDone = nil
+            local shown = false
+            if d.id then
+                shown = pcall(GameTooltip.SetHyperlink, GameTooltip, d.link or ("item:" .. d.id))
+                if shown and ns.TipItem then ns.TipItem(GameTooltip, d.id) end
+            else
+                local sid = d.link and tonumber(d.link:match("enchant:(%d+)"))
+                if sid then shown = pcall(GameTooltip.SetSpellByID, GameTooltip, sid) end
+            end
+            if not shown then
+                GameTooltip:ClearLines()
+                GameTooltip:AddLine(d.name or "", 1, 0.85, 0.4)
+                GameTooltip:AddLine(d.prof or "", 0.7, 0.7, 0.7)
+            end
+            if d.reagents and #d.reagents > 0 then
+                GameTooltip:AddLine(" ")
+                GameTooltip:AddLine(L["Materials"] .. ":", 1, 0.85, 0.4)
+                for _, rg in ipairs(d.reagents) do
+                    local need = rg.count or 1
+                    local have = collectHave[rg.id] or 0
+                    local name, q, icon = W.ItemData(rg.id)
+                    local pic = icon and (("|T%s:14:14:0:0:64:64:5:59:5:59|t "):format(icon)) or ""
+                    local ok = have >= need
+                    GameTooltip:AddDoubleLine(pic .. QualityColour(q, name or ("item:" .. rg.id)), have .. " / " .. need,
+                        1, 1, 1, ok and 0.4 or 0.92, ok and 0.86 or 0.35, ok and 0.66 or 0.30)
+                end
+            end
+            GameTooltip:Show()
+            HideCompare()
+            return
+        end
         if self.link or self.id then
             GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
             GameTooltip.fcDone = nil -- a fresh tooltip (the flag is reset by the game's "cleared" event, which may not have come)
@@ -920,24 +990,7 @@ local function NewRow(i)
         local _, link = GetInfo(id)
         if button == "RightButton" then
             W.Click()
-            T.dd:Open(self, function()
-                local rows = {
-                    { kind = "header", label = Coloured(idx[id], "item:" .. id) },
-                    { kind = "action", label = L["Recipes and professions…"], close = true,
-                        onClick = function() if ns.ItemInfo then ns.ItemInfo.Show(id) end end },
-                    { kind = "action", label = L["Link in chat"], close = true,
-                        onClick = function() if link and ChatEdit_InsertLink then ChatEdit_InsertLink(link) end end },
-                    { kind = "action", label = L["Add to shopping list"], close = true,
-                        onClick = function() if ns.AuctionShop then ns.AuctionShop.Add(id, 1) end end },
-                    { kind = "separator" },
-                    { kind = "header", label = L["Lists"] },
-                }
-                for _, l in ipairs(Lists()) do
-                    rows[#rows + 1] = { kind = "check", state = l.items[id] and "all" or "none", label = l.name,
-                        onClick = function() l.items[id] = (not l.items[id]) or nil; T.Draw() end }
-                end
-                return rows
-            end, true) -- (at the mouse)
+            ItemMenu(self, id)
         elseif IsShiftKeyDown() then
             if link and ChatEdit_InsertLink then ChatEdit_InsertLink(link) end
         elseif state.view == "profit" and T.sell then
@@ -1099,6 +1152,10 @@ local function Dirty()
     Refresh()
 end
 local function DirtyQuiet() dirty = true; Refresh() end
+-- what the characters carry changed: the views of what you own (sell, craft) are worked out again
+function T.HoldingsChanged()
+    if state.view == "profit" or state.view == "recipes" then DirtyQuiet() end
+end
 -- a price was looked at on the auction house and is another one than the scan's: the lists are worked out again
 function T.PriceChanged()
     for k in pairs(results) do results[k] = nil end
@@ -1357,6 +1414,32 @@ local function Build(host)
     end)
     checkBtn:HookScript("OnLeave", function() GameTooltip:Hide() end)
     T.checkBtn = checkBtn
+    -- "Planned": only what the bags manager meant for the auction house (a quick switch next to "Check prices")
+    local plannedBtn = W.NewButton(panel, L["Planned"], 84, 24)
+    plannedBtn:SetPoint("RIGHT", checkBtn, "LEFT", -6, 0)
+    plannedBtn:SetScript("OnClick", function()
+        if not (state.chars and state.chars[ns.Acc.MyKey()]) then return end
+        ns.db.settings.ahPlanned = not (ns.db.settings.ahPlanned ~= false)
+        T.SyncPlanned()
+        Dirty()
+    end)
+    plannedBtn:HookScript("OnEnter", function(self)
+        GameTooltip:SetOwner(self, "ANCHOR_BOTTOM")
+        GameTooltip:SetText(L["Planned"], 1, 0.85, 0.4)
+        GameTooltip:AddLine(L["Only the items that the bags manager has set aside for the auction house: those with the rule \"auction\", and those that its list proposes for it."], 0.85, 0.85, 0.85, true)
+        if not (state.chars and state.chars[ns.Acc.MyKey()]) then
+            GameTooltip:AddLine(" ")
+            GameTooltip:AddLine(L["Only with your own character chosen."], 0.93, 0.74, 0.30, true)
+        end
+        GameTooltip:Show()
+    end)
+    plannedBtn:HookScript("OnLeave", function() GameTooltip:Hide() end)
+    T.plannedBtn = plannedBtn
+    function T.SyncPlanned()
+        local mine = state.chars and state.chars[ns.Acc.MyKey()] and true or false
+        plannedBtn:SetSelected(PlannedOn())
+        plannedBtn:SetAlpha(mine and 1 or 0.45)
+    end
     sideBtn:SetScript("OnClick", function()
         T.Transition(function()
             ns.db.settings.ahPin = not (ns.db.settings.ahPin == true)
@@ -1491,28 +1574,32 @@ local function Build(host)
                     rows[#rows + 1] = { kind = "radio", state = Check(state.sub == sub), label = SubName(cl, sub), indent = 14,
                         right = tostring(counts[cl][sub]), onClick = function() Pick(cl, state.sub ~= sub and sub or nil, state.slot) end }
                 end
-                if cl == 4 then
-                    rows[#rows + 1] = { kind = "header", label = L["Worn at"] }
-                    for _, sl in ipairs(SLOTS) do
-                        rows[#rows + 1] = { kind = "check", state = Check(state.slot == sl[1]), indent = 14,
-                            label = _G[sl[2][1]] or sl[1],
-                            onClick = function() Pick(cl, state.sub, state.slot ~= sl[1] and sl[1] or nil) end }
-                    end
-                end
             end
         end
         return rows
     end
-    -- the button's text: class > subclass, and where it is worn
+    -- the button's text: class > subclass
     local function CategoryLabel()
         if not state.class then return L["Category"] end
         local text = ClassName(state.class)
         if state.sub then text = text .. " › " .. SubName(state.class, state.sub) end
-        if state.slot then
-            local loc = SLOT_BY_KEY[state.slot]
-            text = text .. " · " .. (loc and _G[loc[1]] or state.slot)
-        end
         return text
+    end
+
+    -- where armour is worn: a filter of its own under the category, there while armour is the category. It only holds for armour.
+    T.slotBtn = W.NewMenuButton(panel, dd, L["Worn at"], "Interface\\Icons\\INV_Chest_Cloth_17")
+    function T.SlotRows()
+        local rows = { { kind = "radio", state = Check(state.slot == nil), label = L["All slots"],
+            onClick = function() state.slot = nil; T.Filters(); Dirty() end } }
+        for _, sl in ipairs(SLOTS) do
+            rows[#rows + 1] = { kind = "radio", state = Check(state.slot == sl[1]), label = _G[sl[2][1]] or sl[1],
+                onClick = function() state.slot = state.slot ~= sl[1] and sl[1] or nil; T.Filters(); Dirty() end }
+        end
+        return rows
+    end
+    function T.SlotLabel()
+        local loc = state.slot and SLOT_BY_KEY[state.slot]
+        return state.slot and (loc and _G[loc[1]] or state.slot) or L["Worn at"]
     end
 
     -- the rarity: which kinds are shown
@@ -1744,8 +1831,8 @@ local function Build(host)
         Dirty()
     end)
 
-    for _, b in ipairs({ category, levelBtn, profession, rarityBtn, lists, offerBtn, options, charsBtn, placeBtn }) do b.clickOnly = true end
-    for _, w in ipairs({ category, levelBtn, profession, rarityBtn, lists, offerBtn, charsBtn, placeBtn, dealsT, deT, clearBtn }) do
+    for _, b in ipairs({ category, T.slotBtn, levelBtn, profession, rarityBtn, lists, offerBtn, options, charsBtn, placeBtn }) do b.clickOnly = true end
+    for _, w in ipairs({ category, T.slotBtn, levelBtn, profession, rarityBtn, lists, offerBtn, charsBtn, placeBtn, dealsT, deT, clearBtn }) do
         w:SetParent(side)
     end
 
@@ -1754,6 +1841,8 @@ local function Build(host)
         local first = Lists()[1]
         favBtn:SetActive(state.list ~= nil and first ~= nil and state.list == first.id)
         category:SetContent(CategoryLabel(), W.ICON.loot, CategoryRows, state.class ~= nil)
+        if state.class ~= 4 then state.slot = nil end -- (the slot belongs to armour only)
+        T.slotBtn:SetContent(T.SlotLabel(), "Interface\\Icons\\INV_Chest_Cloth_17", T.SlotRows, state.slot ~= nil)
         local lv = state.level
         levelBtn:SetContent(lv and ((lv[1] == 0 and (L["Usable at level %d"]):format(lv[2])) or (L["Level %d–%d"]):format(lv[1], lv[2])) or L["Level"],
             W.ICON.rate, LevelRows, lv ~= nil)
@@ -2030,6 +2119,8 @@ local function Build(host)
         end
         local own = state.view == "profit" or state.view == "recipes" -- views of what you own: characters and places first
         local order = { category, profession, levelBtn, rarityBtn, lists, offerBtn }
+        T.slotBtn:SetShown(state.class == 4)
+        if state.class == 4 then table.insert(order, 2, T.slotBtn) end
         if own then
             table.insert(order, 1, placeBtn)
             table.insert(order, 1, charsBtn)
@@ -2073,6 +2164,8 @@ local function Build(host)
         search:SetShown(not isDash)
         T.favBtn:SetShown(not isDash)
         T.checkBtn:SetShown(state.view == "profit")
+        T.plannedBtn:SetShown(state.view == "profit")
+        T.SyncPlanned()
         if T.topRule then T.topRule:SetShown(not isDash) end
         sideBtn:SetShown(not isDash)
         scroll:SetShown(not isDash)

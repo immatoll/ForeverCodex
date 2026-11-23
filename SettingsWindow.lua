@@ -598,7 +598,7 @@ do
     local p = NewPage("session", L["Kills & Loot"])
     Heading(p, L["Window"])
     Toggle(p, L["Open the session window by itself"], "Interface\\Icons\\INV_Misc_Bag_10",
-        function() return ns.db.settings.autoOpenSession ~= false end,
+        function() return ns.db.settings.autoOpenSession == true end,
         function(on) ns.db.settings.autoOpenSession = on end,
         L["The window opens when you loot or gather something, if it is closed."], true)
     Heading(p, L["Recording"])
@@ -607,9 +607,9 @@ do
         function(on) ns.db.settings.pauseInstances = on end,
         L["Inside dungeons and raids the game hides the names of creatures from addons, so their loot cannot be assigned. With this on, nothing is recorded there."], true)
     Toggle(p, L["Not while in a group"], "Interface\\Icons\\INV_Misc_GroupLooking",
-        function() return ns.db.settings.pauseGroup ~= false end,
+        function() return ns.db.settings.pauseGroup == true end,
         function(on) ns.db.settings.pauseGroup = on end,
-        L["In a group the game may hide the names of creatures too. With this on, nothing is recorded while you are grouped."], true)
+        L["In a group the game may hide the names of creatures too. With this on, nothing is recorded while you are grouped. Off: loot is recorded, and coins count as your share."], true)
     Heading(p, L["Session"])
     Toggle(p, L["Keep session after reload"], W.ICON.session,
         function() return ns.db.settings.keepSession end,
@@ -793,6 +793,14 @@ do
         function() return ns.db.settings.ahOpenCodex ~= false end,
         function(on) ns.db.settings.ahOpenCodex = on end,
         L["The Companion tab is the first one shown when you open the auction house."], true)
+    Toggle(p, L["Sell list: only planned items"], "Interface\Icons\INV_Misc_Bag_10",
+        function() return ns.db.settings.ahPlanned ~= false end,
+        function(on) ns.db.settings.ahPlanned = on; if ns.AuctionTab and ns.AuctionTab.SyncPlanned then ns.AuctionTab.SyncPlanned() end end,
+        L["In the sell view of the auction house only the items that the bags manager has set aside for it are listed (with your own character chosen). The switch \"Planned\" there does the same."], true)
+    Toggle(p, L["Close buy and sell panels when done"], "Interface\\Icons\\INV_Misc_Coin_01",
+        function() return ns.db.settings.ahCloseAfter ~= false end,
+        function(on) ns.db.settings.ahCloseAfter = on end,
+        L["The panel of a purchase or a sale closes by itself once it went through."], true)
     Heading(p, L["Scan"])
     Toggle(p, L["Collect auction prices myself"], "Interface\\Icons\\INV_Misc_Coin_02",
         function() return ns.AH.Enabled() end,

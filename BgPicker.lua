@@ -14,7 +14,7 @@ local idxOf = { bg = 0, icon = 0 }
 local bar, test
 local target = "all"                -- which window the choices are for: "all", or one of the windows (see TARGETS)
 local TARGETS = { { "all", "All windows", 96 }, { "hud", "Kills & Loot", 96 }, { "account", "Account", 66 }, { "map", "Map", 50 },
-    { "settings", "Settings", 66 }, { "journal", "Journal", 64 }, { "ah", "Auction house", 96 }, { "bags", "Bags", 50 } }
+    { "settings", "Settings", 66 }, { "journal", "Journal", 64 }, { "ah", "Auction house", 96 }, { "bags", "Bags", 50 }, { "recipes", "Recipes", 66 } }
 local ALPHAS = { { "100%", 1 }, { "85%", 0.85 }, { "70%", 0.7 }, { "55%", 0.55 } }
 
 -- what is set for the chosen window (a layer of W.SkinOf, in ns.db.settings.skins)

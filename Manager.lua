@@ -270,7 +270,8 @@ local function Entries(tab)
         local main, ruled = {}, {}
         for _, it in ipairs(items) do
             if it.rule then ruled[#ruled + 1] = it
-            elseif it.vendor > 0 then main[#main + 1] = it end
+            elseif it.class == (Enum and Enum.ItemClass and Enum.ItemClass.Questitem or 12) then -- (quest items: nothing to do with them here)
+            elseif it.vendor > 0 or not it.bound then main[#main + 1] = it end -- (without a vendor price they are still there, to be mailed: if they are not bound)
         end
         local rank = { junk = 0, vendor = 1, ah = 2, none = 3 }
         table.sort(main, function(a, b)
@@ -358,6 +359,15 @@ function M.Sell(items)
     if #slots == 0 then return end
     Run(slots, 0.1, MerchantOpen)
     Say((L["Selling %d stacks for %s."]):format(#slots, Money(total)))
+end
+
+-- the items of the bags that are meant for the auction house: those with the rule "auction", and those that the list proposes for it
+function M.AuctionSet()
+    local set = {}
+    for _, it in ipairs(Scan()) do
+        if (it.verdict == "auction" or it.verdict == "ah") and not it.bound then set[it.id] = true end
+    end
+    return set
 end
 
 function M.SellJunk()
@@ -698,7 +708,7 @@ local function Render()
                 r.qty:SetText(it.count > 1 and ("×" .. it.count) or "")
                 r.vendor:SetText(it.vendor > 0 and Money(it.vendor * it.count) or "|cff8a806e–|r")
                 if it.ah then
-                    r.ah:SetText(Money(it.ah))
+                    r.ah:SetText(Money(it.ah * it.count)) -- (the sum for the stack, as the vendor price)
                     if it.vendor > 0 then
                         local pct = (it.ahNet - it.vendor) / it.vendor * 100
                         -- a gain is green (stronger from the set threshold on), a loss red

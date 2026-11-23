@@ -2107,8 +2107,14 @@ local function ViewCraft()
                     sort = { recipe = r.name:lower(), prof = r.prof:lower(), can = can or -1, profit = profit or -math.huge,
                         value = value, cost = cost },
                     tip = function(tt)
-                        tt:AddLine(r.name, 1, 0.85, 0.4)
-                        tt:AddLine(r.prof, 0.7, 0.7, 0.7)
+                        -- an enchantment has no item: its tooltip is the spell's, as the game words it
+                        local sid = r.link and tonumber(r.link:match("enchant:(%d+)"))
+                        if sid and pcall(tt.SetSpellByID, tt, sid) then
+                            tt:AddLine(" ")
+                        else
+                            tt:AddLine(r.name, 1, 0.85, 0.4)
+                            tt:AddLine(r.prof, 0.7, 0.7, 0.7)
+                        end
                         Details(tt)
 
                     end,

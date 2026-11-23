@@ -175,7 +175,7 @@ grip:SetHighlightTexture("Interface\\ChatFrame\\UI-ChatIM-SizeGrabber-Highlight"
 grip:SetPushedTexture("Interface\\ChatFrame\\UI-ChatIM-SizeGrabber-Down")
 local MIN_SCALE, MAX_SCALE = 0.6, 1.6
 U.gripOpts = { -- (kept: the limits for the size change while the window is folded up)
-    defaultSize = { DEFAULT_W, DEFAULT_H }, minSize = { MIN_W, MIN_H }, maxSize = { MAX_W, MAX_H },
+    defaultSize = { DEFAULT_W, DEFAULT_H }, minSize = { MIN_W, MIN_H }, maxSize = { MAX_W, MAX_H }, topInset = 54,
     gridSize = { 20, ROW_H }, gridScale = 0.05,
     minScale = MIN_SCALE, maxScale = MAX_SCALE,
     saveSize = function() if ns.db then ns.db.hudSize = { f:GetWidth(), A.collapsed and (A.expandedH or f:GetHeight()) or f:GetHeight() } end end,
@@ -325,8 +325,11 @@ if HUD.compact then
 
     -- A timer for an alarm, at the right of the footer: a click on the bell gives the times; while it runs the time left is shown. When it
     -- is up there is a sound, a message in the chat and on the screen. It is kept over a reload (ns.db.hudAlarmEnd, a point in time).
+    local cog = W.NewIconButton(footer, W.ICON.settings, 18)
+    cog:SetPoint("BOTTOMRIGHT", f, "BOTTOMRIGHT", -26, 3)
+    cog:SetTip(L["Settings"], L["Some settings to switch here, and the way to all of them."])
     local bell = W.NewIconButton(footer, "Interface\\Icons\\INV_Misc_Bell_01", 18)
-    bell:SetPoint("BOTTOMRIGHT", f, "BOTTOMRIGHT", -26, 3)
+    bell:SetPoint("RIGHT", cog, "LEFT", -6, 0)
     bell:SetTip(L["Timer"], L["Sets an alarm: click and choose the time."])
     U.alarmText = footer:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
     U.alarmText:SetPoint("RIGHT", bell, "LEFT", -6, 0)
@@ -404,6 +407,36 @@ if HUD.compact then
     end
     bell:SetScript("OnClick", function(self)
         if menu:IsShown() and menu.owner == self then menu:Close() else menu:Open(self, Rows, true) end
+    end)
+
+    -- the settings button: the switches of the window and of the recording, and the way to the settings (the first page of the loot)
+    local function Switch(label, icon, get, set)
+        return { kind = "check", state = get() and "all" or "none", label = label, icon = icon, onClick = function() set(not get()); ns.Refresh() end }
+    end
+    local function SettingsRows()
+        local st = ns.db.settings
+        local out = { { kind = "header", label = L["Settings"] } }
+        out[#out + 1] = Switch(L["Open the session window by itself"], "Interface\\Icons\\INV_Misc_Bag_10",
+            function() return st.autoOpenSession == true end, function(on) st.autoOpenSession = on end)
+        out[#out + 1] = Switch(L["Not in dungeons and raids"], "Interface\\Icons\\INV_Misc_Key_03",
+            function() return st.pauseInstances ~= false end, function(on) st.pauseInstances = on end)
+        out[#out + 1] = Switch(L["Not while in a group"], "Interface\\Icons\\INV_Misc_GroupLooking",
+            function() return st.pauseGroup == true end, function(on) st.pauseGroup = on end)
+        out[#out + 1] = Switch(L["Keep session after reload"], W.ICON.session,
+            function() return st.keepSession and true or false end, function(on) st.keepSession = on end)
+        out[#out + 1] = Switch(L["Hide gray items"], "Interface\\Icons\\INV_Misc_Bone_01",
+            function() return st.hideGray and true or false end, function(on) st.hideGray = on end)
+        out[#out + 1] = Switch(L["Count looted money"], "Interface\\Icons\\INV_Misc_Coin_01",
+            function() return ns.MoneyOn() end, function(on) st.countMoney = on end)
+        out[#out + 1] = { kind = "separator" }
+        out[#out + 1] = { kind = "action", label = L["All settings ..."], icon = W.ICON.settings, close = true,
+            onClick = function() if ns.Settings then ns.Settings.Show("sources") end end }
+        return out
+    end
+    -- (a menu of its own, wide enough for the texts)
+    local setMenu = W.NewDropdown(f, { level = f:GetFrameLevel() + 60, width = 330, strata = "FULLSCREEN_DIALOG" })
+    cog:SetScript("OnClick", function(self)
+        if setMenu:IsShown() and setMenu.owner == self then setMenu:Close() else menu:Close(); setMenu:Open(self, SettingsRows, true) end
     end)
 end
 
@@ -2492,6 +2525,7 @@ function U.SetCollapsed(on)
         if U.footer then -- the footer and its grip stay: the window can be made wider, not higher
             grip:Show()
             U.gripOpts.minSize, U.gripOpts.maxSize = { MIN_W, COLLAPSED_H }, { MAX_W, COLLAPSED_H }
+            U.gripOpts.defaultSize = { DEFAULT_W, COLLAPSED_H } -- (shift + right-click on the grip: the width only, it stays folded up)
         end
         for _, fs in pairs(head) do fs:Hide() end
         U.ShowBoardControls(false)
@@ -2503,6 +2537,7 @@ function U.SetCollapsed(on)
         for _, t in ipairs(tabs) do t:Show() end
         rule:Show(); countLabel:Show(); searchBox:Show(); grip:Show() -- the rest returns with the next Render
         U.gripOpts.minSize, U.gripOpts.maxSize = { MIN_W, MIN_H }, { MAX_W, MAX_H }
+        U.gripOpts.defaultSize = { DEFAULT_W, DEFAULT_H }
     end
     minBtn.text:SetText(on and "+" or "–")
     W.SkinSyncMinimized(f, on)

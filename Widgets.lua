@@ -594,6 +594,7 @@ function W.WindowMenuRows(f)
         { "account", L["Account"], W.ICON.account, function() if ns.AccountWindow then ns.AccountWindow.Toggle() end end },
         { "ah", L["Auction house"], W.ICON.coin, function() if ns.AuctionWindow then ns.AuctionWindow.Toggle() end end },
         { "bags", L["Bags"], "Interface\\Icons\\INV_Misc_Bag_10", function() if ns.Manager then ns.Manager.Toggle() end end },
+        { "recipes", L["Recipes"], "Interface\\Icons\\INV_Misc_Book_09", function() if ns.ItemInfo then ns.ItemInfo.Toggle() end end },
         { "settings", L["Settings"], W.ICON.settings, function() if ns.Settings then ns.Settings.Toggle() end end },
     }
     -- the windows of the addon, then the subwindows of one (indented under it), then what is for everything (apart)
@@ -668,6 +669,13 @@ local function ApplyButtonHover(b, v)
     b.text:SetTextColor(LerpColor(b.baseColor or C.text, { 1, 0.95, 0.7 }, k))
 end
 
+-- brings the window of a frame to the front (the top-level frame that holds it)
+function W.RaiseWindow(frame)
+    local f = frame
+    while f:GetParent() and f:GetParent() ~= UIParent do f = f:GetParent() end
+    if f ~= frame and f.Raise then pcall(f.Raise, f) end
+end
+
 function W.NewButton(parent, text, width, height, font)
     local b = CreateFrame("Button", nil, parent, W.TEMPLATE)
     b:SetSize(width, height or 24)
@@ -700,6 +708,7 @@ function W.NewButton(parent, text, width, height, font)
     b:SetScript("OnHide", function(self) self.text:SetPoint("CENTER", 0, 0) end)
     b:SetScript("OnMouseDown", function(self) self.text:SetPoint("CENTER", 0, -1) end)
     b:SetScript("OnMouseUp", function(self) self.text:SetPoint("CENTER", 0, 0) end)
+    b:HookScript("OnMouseDown", W.RaiseWindow) -- (a click on a button brings its window to the front)
     return b
 end
 
@@ -761,6 +770,7 @@ function W.NewIconButton(parent, texture, size)
     b:SetScript("OnMouseDown", function(self) self.icon:SetPoint("CENTER", 0, -1) end)
     b:SetScript("OnMouseUp", function(self) self.icon:SetPoint("CENTER", 0, 0) end)
     ApplyIconButton(b, 0)
+    b:HookScript("OnMouseDown", W.RaiseWindow) -- (a click on a button brings its window to the front)
     return b
 end
 
@@ -866,6 +876,9 @@ function W.AttachScaleGrip(frame, grip, opts)
         local left, top = frame:GetLeft(), frame:GetTop()
         if not (left and top) then frame:SetScale(scale) return end
         left, top = left * old, top * old
+        -- (the visible frame can stand above the top edge of the window: it is that corner that stays where it is)
+        local inset = opts.topInset or 0
+        top = top + inset * old - inset * scale
         frame:SetScale(scale)
         frame:ClearAllPoints()
         frame:SetPoint("TOPLEFT", UIParent, "BOTTOMLEFT", left / scale, top / scale)
@@ -914,7 +927,8 @@ function W.AttachScaleGrip(frame, grip, opts)
         end
         frame:SetScale(scale)
         frame:ClearAllPoints()
-        frame:SetPoint("TOPLEFT", UIParent, "BOTTOMLEFT", st.left / scale, st.top / scale)
+        local inset = opts.topInset or 0
+        frame:SetPoint("TOPLEFT", UIParent, "BOTTOMLEFT", st.left / scale, (st.top + inset * st.scale - inset * scale) / scale)
         frame:SetSize(wid, hei)
         local info = ("%d × %d"):format(wid + 0.5, hei + 0.5)
         if st.scaled then

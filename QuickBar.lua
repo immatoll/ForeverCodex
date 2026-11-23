@@ -20,12 +20,13 @@ local function Windows()
         { "journal", L["Journal"], function() if ns.UI then ns.UI.Toggle() end end },
         { "ah", L["Auction house"], function() if ns.AuctionWindow then ns.AuctionWindow.Toggle() end end },
         { "bags", L["Bags"], function() if ns.Manager then ns.Manager.Toggle() end end },
+        { "recipes", L["Recipes"], function() if ns.ItemInfo then ns.ItemInfo.Toggle() end end },
         { "account", L["Account"], function() if ns.AccountWindow then ns.AccountWindow.Toggle() end end },
         { "settings", L["Settings"], function() if ns.Settings then ns.Settings.Toggle() end end },
     }
 end
 local FALLBACK = { journal = W.ICON.journal, hud = W.ICON.session, map = W.ICON.map, account = W.ICON.account, ah = W.ICON.coin,
-    settings = W.ICON.settings, bags = "Interface\\Icons\\INV_Misc_Bag_10" }
+    settings = W.ICON.settings, bags = "Interface\\Icons\\INV_Misc_Bag_10", recipes = "Interface\\Icons\\INV_Misc_Book_09" }
 
 local bar, buttons, handle
 local DELTA = HANDLE_ROOM + GAP - PAD -- how much longer the bar is with the logo

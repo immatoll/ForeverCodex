@@ -875,6 +875,8 @@ worker:SetScript("OnUpdate", function(_, dt)
         if not ok and ns.db and ns.db.debug then print("ForeverCompanion account:", kind, err) end
     end
     if ns.AccountWindow and ns.AccountWindow.Dirty then ns.AccountWindow.Dirty() end
+    -- the bags changed (something was put up for sale, bought, moved): the list of what can be sold is worked out again
+    if (work.bags or work.bank) and ns.AuctionTab and ns.AuctionTab.HoldingsChanged then ns.AuctionTab.HoldingsChanged() end
 end)
 
 local events = CreateFrame("Frame")

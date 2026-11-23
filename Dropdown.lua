@@ -60,11 +60,32 @@ local function NewRow(dd)
     return r
 end
 
+-- While a menu is open no tooltip is shown (the one of the button that opened it would cover the menu): every menu is listed here, and
+-- a tooltip that is shown meanwhile is taken away again, except one that belongs to the menu itself.
+local menus = {}
+function W.MenuOpen()
+    for _, m in ipairs(menus) do if m:IsShown() then return true end end
+    return false
+end
+local function InsideMenu(frame)
+    while frame do
+        for _, m in ipairs(menus) do if m == frame then return true end end
+        frame = frame.GetParent and frame:GetParent() or nil
+    end
+    return false
+end
+hooksecurefunc(GameTooltip, "Show", function(tt)
+    if not W.MenuOpen() then return end
+    local owner = tt:GetOwner()
+    if owner and owner ~= UIParent and not InsideMenu(owner) then tt:Hide() end
+end)
+
 function W.NewDropdown(parent, opts)
     opts = opts or {}
     local dd = W.NewPlate(parent, { 0.045, 0.035, 0.026, 0.98 })
+    menus[#menus + 1] = dd
     -- opts.strata: a menu in front of a window of the game must not sit behind that window's frame
-    if opts.strata then dd:SetFrameStrata(opts.strata) end
+    dd:SetFrameStrata(opts.strata or "FULLSCREEN_DIALOG") -- (a menu is always in front of the windows, whichever of them it belongs to)
     dd:SetFrameLevel(opts.level or (parent:GetFrameLevel() + 60))
     dd:SetWidth(opts.width or 250)
     dd:EnableMouse(true)
@@ -238,6 +259,7 @@ function W.NewDropdown(parent, opts)
     -- opened by the mouse over btn; gen() gives the rows. atCursor: the menu's corner is at the mouse (a context menu)
     -- instead of under the button; it is moved up when it would reach below the screen.
     function dd:Open(btn, gen, atCursor)
+        GameTooltip:Hide() -- (the tooltip of the button, or of the row clicked, would hide the menu)
         self.away = 0
         self.gen = gen
         if self.owner == btn and self:IsShown() and not atCursor then return self:Render() end

@@ -393,6 +393,7 @@ function S.Build(parent)
         if ok then
             local name = W.ItemData(self.id) or ("item:" .. self.id)
             print("|cffffd100ForeverCompanion:|r " .. (L["Put up for sale: %s ×%d at %s each"]):format(name, qty, Money(price)))
+            if ns.db.settings.ahCloseAfter ~= false then self:Close() return end -- (done: the panel goes)
             C_Timer.After(1.5, function()
                 if self.id then
                     self.total = InBags(self.id)

@@ -402,6 +402,17 @@ function UI.NewListView(parent, width, height, rowH)
         UpdateThumb()
     end
 
+    -- the list gets another height (a panel beside it opens or closes)
+    function lv:Resize(h)
+        height = h
+        sf:SetHeight(h)
+        self.maxScroll = math.max(0, self.contentH - h)
+        self.target = math.min(self.target, self.maxScroll)
+        if self.scroll > self.maxScroll then self.scroll = self.maxScroll end
+        sf:SetVerticalScroll(self.scroll)
+        UpdateThumb()
+    end
+
     function lv:SetData(entries, selKey, onSelect, emptyText)
         self.onSelect = onSelect
         local now = GetTime()

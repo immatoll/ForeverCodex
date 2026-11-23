@@ -325,6 +325,7 @@ function B.Build(parent)
                 if ok then
                     print("|cffffd100ForeverCompanion:|r " .. (L["Bought: %s ×%d for %s"]):format(W.ItemData(self.id) or ("item:" .. self.id), first.qty, Money(first.total)))
                     if ns.AuctionOwn then ns.AuctionOwn.Spent(self.id, first.qty, first.total) end
+                    if ns.db.settings.ahCloseAfter ~= false then self:Close() return end -- (done: the panel goes)
                     C_Timer.After(1.5, function() if self.id then self:Ask() end end)
                 else
                     print("|cffffd100ForeverCompanion:|r " .. (L["Could not buy it: %s"]):format(tostring(err)))
@@ -379,6 +380,7 @@ function B.Build(parent)
             if ns.AuctionOwn then ns.AuctionOwn.Spent(self.id, self.quoteAmount or 0, self.quote or 0) end
             self.state, self.quote = nil, nil
             self.buy.text:SetText(L["Buy"])
+            if ns.db.settings.ahCloseAfter ~= false then self:Close() return end -- (done: the panel goes)
             C_Timer.After(1.5, function() if self.id then self:Ask() end end)
         elseif event == "COMMODITY_PURCHASE_FAILED" then
             self.state, self.quote = nil, nil

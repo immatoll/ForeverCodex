@@ -165,8 +165,16 @@ local function NewCard(parent, title, widths, heads, arrowCol)
             end
         end)
         r:SetScript("OnLeave", function(self) self.hl:Hide(); GameTooltip:Hide() end)
-        r:SetScript("OnClick", function(self)
-            if self.id and card.onClick then card.onClick(self.id, self) end
+        r:RegisterForClicks("LeftButtonUp", "RightButtonUp")
+        r:SetScript("OnClick", function(self, button)
+            if not self.id then return end
+            if button == "RightButton" then
+                -- the context menu of the item, as in the lists of the tab (recipes, link, shopping list ...)
+                W.Click()
+                if ns.AuctionItemMenu then ns.AuctionItemMenu(self, self.id) end
+            elseif card.onClick then
+                card.onClick(self.id, self)
+            end
         end)
         card.rows[i] = r
     end

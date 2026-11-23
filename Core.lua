@@ -755,11 +755,12 @@ function ns.MoneyOn() return ns.db.settings.countMoney ~= false end
 -- had coins is still a kill.
 -- Something was looted or gathered: the session window opens by itself (a setting, on unless switched off).
 function ns.OnFind()
-    if ns.db.settings.autoOpenSession ~= false and ns.HUD then ns.HUD.Show() end
+    if ns.db.settings.autoOpenSession == true and ns.HUD then ns.HUD.Show() end
 end
 
 -- Inside dungeons and raids, and in a group, the game hides the names of creatures from addons: the loot could only be booked under
--- "Unknown". Two settings (both on unless switched off) keep it from being recorded there; a note in the chat says so once.
+-- "Unknown". Two settings keep it from being recorded there (dungeons and raids: on unless switched off; a group: off unless switched on);
+-- a note in the chat says so once.
 local pausedNote
 local function RecordingPaused()
     local st = ns.db.settings
@@ -768,7 +769,7 @@ local function RecordingPaused()
         local inside, kind = IsInInstance()
         if inside and (kind == "party" or kind == "raid" or kind == "scenario") then why = L["in a dungeon or raid"] end
     end
-    if not why and st.pauseGroup ~= false and IsInGroup and IsInGroup() then why = L["in a group"] end
+    if not why and st.pauseGroup == true and IsInGroup and IsInGroup() then why = L["in a group"] end
     if not why then pausedNote = nil return false end
     if pausedNote ~= why then
         pausedNote = why
@@ -778,9 +779,23 @@ local function RecordingPaused()
 end
 ns.RecordingPaused = RecordingPaused
 
-local function RecordMoney(cat, name, copper, guid)
+-- In a group the coins of a corpse are shared: what counts is the share the game names in the chat ("Your share of the loot is ..."),
+-- not what the loot window shows. The sources of the coins wait for that line (or a line that came a moment before the window).
+local moneyWaiting, moneyEarly = {}, {}
+local function RecordMoney(cat, name, copper, guid, share)
     if not copper or copper <= 0 then return end
     if RecordingPaused() then return end
+    if not share and IsInGroup and IsInGroup() then
+        local now = GetTime()
+        while moneyEarly[1] and now - moneyEarly[1].t > 3 do table.remove(moneyEarly, 1) end
+        local early = table.remove(moneyEarly, 1)
+        if early then
+            copper = early.copper
+        else
+            moneyWaiting[#moneyWaiting + 1] = { cat = cat, name = name, guid = guid, t = now }
+            return
+        end
+    end
     local key = SourceKey(cat, name)
     local gm, sm = GetSource(key, cat, name), GetSessionSource(key)
     CountSource(gm, sm, cat, key, guid)
@@ -975,6 +990,34 @@ local function MoneyFromText(text)
         end
     end
     return total
+end
+
+-- the chat lines with money: "You loot 5 Silver", and in a group "Your share of the loot is 2 Silver"
+local MONEY_LINES = {}
+for _, name in ipairs({ "LOOT_MONEY_SPLIT", "YOU_LOOT_MONEY" }) do
+    local fmt = _G[name]
+    if type(fmt) == "string" then
+        MONEY_LINES[#MONEY_LINES + 1] = "^" .. fmt:gsub("%p", "%%%0"):gsub("%%%%s", "(.+)") .. "$"
+    end
+end
+function ns.OnChatMoney(text)
+    text = Readable(text)
+    if not text or not ns.db then return end
+    local copper
+    for _, pat in ipairs(MONEY_LINES) do
+        local got = text:match(pat)
+        if got then copper = MoneyFromText(got) break end
+    end
+    if not copper or copper <= 0 then return end
+    local now = GetTime()
+    while moneyWaiting[1] and now - moneyWaiting[1].t > 20 do table.remove(moneyWaiting, 1) end
+    local w = table.remove(moneyWaiting, 1)
+    if w then
+        RecordMoney(w.cat, w.name, copper, w.guid, true)
+        ns.Refresh()
+    else
+        moneyEarly[#moneyEarly + 1] = { copper = copper, t = now } -- (the line came before the loot window was read)
+    end
 end
 
 local function SlotSources(slot)
@@ -1236,6 +1279,7 @@ f:SetScript("OnEvent", function(_, event, ...)
         f:RegisterEvent("LOOT_CLOSED")
         pcall(f.RegisterEvent, f, "LOOT_READY")
         f:RegisterEvent("CHAT_MSG_LOOT")
+        pcall(f.RegisterEvent, f, "CHAT_MSG_MONEY")
         f:RegisterEvent("PLAYER_TARGET_CHANGED")
         f:RegisterEvent("UPDATE_MOUSEOVER_UNIT")
         f:RegisterEvent("UNIT_SPELLCAST_SENT")
@@ -1270,6 +1314,8 @@ f:SetScript("OnEvent", function(_, event, ...)
         OnLootOpened("LOOT_READY")
     elseif event == "CHAT_MSG_LOOT" then
         ns.OnChatLoot(...)
+    elseif event == "CHAT_MSG_MONEY" then
+        ns.OnChatMoney((...))
     elseif event == "LOOT_CLOSED" then
         Dbg("LOOT_CLOSED")
         lootDone = false
@@ -1328,7 +1374,7 @@ function ns.Probe()
     P("issecretvalue:", type(issecretvalue), " build:", S(select(4, GetBuildInfo())))
     local inside, kind = IsInInstance()
     P("instance:", S(inside), S(kind), " zone:", S(GetZoneText()), " group:", S(IsInGroup and IsInGroup()), " raid:", S(IsInRaid and IsInRaid()))
-    P("paused by the settings:", S(ns.db.settings.pauseInstances ~= false), S(ns.db.settings.pauseGroup ~= false))
+    P("paused by the settings:", S(ns.db.settings.pauseInstances ~= false), S(ns.db.settings.pauseGroup == true))
     for _, unit in ipairs({ "target", "mouseover", "softenemy", "softinteract", "focus" }) do
         local ok, exists = pcall(UnitExists, unit)
         if ok and exists then
