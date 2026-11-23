@@ -396,6 +396,17 @@ local function ScanSkills()
         end
     end
     rec.skills = list
+    -- recipes of a profession that the character does not have (any more: it was dropped, or the data came from a wrong window) are taken away.
+    -- Only when the list of skills is plausible: at least one profession with recipes is in it (a collapsed header would show none).
+    if rec.recipes and #list > 0 then
+        local have = {}
+        for _, sk in ipairs(list) do have[tostring(sk.name):lower()] = true end
+        local known, stale = false, {}
+        for pname in pairs(rec.recipes) do
+            if have[tostring(pname):lower()] then known = true else stale[#stale + 1] = pname end
+        end
+        if known then for _, pname in ipairs(stale) do rec.recipes[pname] = nil end end
+    end
     Stamp(rec, "skills")
 end
 

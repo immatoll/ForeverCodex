@@ -836,7 +836,7 @@ local function RuleListRow(p)
         ln.kind:SetWordWrap(false)
         ln.del = W.NewButton(ln, "×", 22, 20, "GameFontNormal")
         ln.del:SetPoint("RIGHT", 0, 0)
-        ln.del:SetScript("OnClick", function() if ln.id and ns.Manager then ns.Manager.SetRule(ln.id, nil) end end)
+        ln.del:SetScript("OnClick", function() if ln.id and ns.Manager then ns.Manager.SetRule(ln.id, nil, nil, ln.char and "char" or "all") end end)
         fr.lines[i] = ln
         return ln
     end
@@ -849,11 +849,11 @@ local function RuleListRow(p)
                 local ln = Line(i)
                 ln:ClearAllPoints()
                 ln:SetPoint("TOPLEFT", fr, "TOPLEFT", 0, -(i - 1) * 24)
-                ln.id = e.id
+                ln.id, ln.char = e.id, e.char
                 ln.icon:SetTexture(e.icon or "Interface\\Icons\\INV_Misc_QuestionMark")
                 ln.name:SetText(e.name)
                 local k = ns.Manager.KIND[e.kind]
-                ln.kind:SetText((k and k.label or e.kind) .. (e.target and (": " .. e.target) or ""))
+                ln.kind:SetText((ns.Manager.RuleText({ kind = e.kind, target = e.target, char = e.char })))
                 if k then ln.kind:SetTextColor(k.color[1], k.color[2], k.color[3]) end
                 ln:Show()
             end
@@ -903,11 +903,11 @@ local function CatListRow(p)
                 local r = ns.Manager.CatRule(cat.id)
                 local k = r and ns.Manager.KIND[r.kind]
                 if k then
-                    ln.rule:SetText(k.label .. ((r.kind == "mail" and r.target) and (": " .. r.target) or ""))
+                    ln.rule:SetText((ns.Manager.RuleText(r)))
                     ln.rule:SetTextColor(k.color[1], k.color[2], k.color[3])
                 else
                     local who = ns.Manager.Suggest(cat)
-                    ln.rule:SetText(who and ("– (" .. L["Suggestion"] .. ": " .. who .. ")") or "–")
+                    ln.rule:SetText(who and ("– (" .. L["Suggestion"] .. ": " .. ns.Manager.ColoredName(who) .. ")") or "–")
                     ln.rule:SetTextColor(0.55, 0.55, 0.55)
                 end
             end
@@ -943,7 +943,7 @@ do
     Heading(p, L["Single items"])
     Note(p, L["What to do with an item, set in the bags manager: keep it, always mail it to a character, or store it in the bank."])
     RuleListRow(p)
-    Button(p, L["Remove all rules"], function() if ns.Manager then ns.Manager.ClearRules() end end, { confirm = true })
+    Button(p, L["Delete all rules"], function() if ns.Manager then ns.Manager.AskClearRules() end end)
 end
 
 -- Data -------------------------------------------------------------------------------------------

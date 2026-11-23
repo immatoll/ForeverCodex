@@ -33,6 +33,7 @@ T.defaults = {
 -- himself on top of it (ns.db.settings) wins.
 T.skins = {
     account = { icon = { atlas = "gamepad-radial-icon-character" } },
+    bags = { icon = { atlas = "gamepad-radial-icon-bags" } },
     all = { bgTex = { atlas = "Professions-background-summarylist" } },
     hud = {
         bgMode = "stretch",

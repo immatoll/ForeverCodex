@@ -439,11 +439,28 @@ local function Build()
     f.count = f:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
     f.count:SetPoint("TOPRIGHT", -16, -14)
     f.count:SetTextColor(unpack(C.muted))
-    f.text = f:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    -- (an edit box that only shows: a click marks the whole line, Ctrl+C copies it, e.g. the name of a picture to tell somebody)
+    f.text = CreateFrame("EditBox", nil, f)
+    f.text:SetFontObject("GameFontHighlightSmall")
     f.text:SetPoint("TOPLEFT", 12, -14)
     f.text:SetPoint("RIGHT", f.count, "LEFT", -10, 0)
+    f.text:SetHeight(14)
+    f.text:SetAutoFocus(false)
     f.text:SetJustifyH("LEFT")
-    f.text:SetWordWrap(false)
+    local shownText = ""
+    local rawSet = f.text.SetText
+    function f.text:SetText(t) shownText = t or ""; rawSet(self, shownText); self:SetCursorPosition(0) end
+    f.text:SetScript("OnTextChanged", function(self, user) if user and self:GetText() ~= shownText then rawSet(self, shownText) end end)
+    f.text:SetScript("OnEditFocusGained", function(self) self:HighlightText() end)
+    f.text:SetScript("OnEditFocusLost", function(self) self:HighlightText(0, 0) end)
+    f.text:SetScript("OnEscapePressed", function(self) self:ClearFocus() end)
+    f.text:SetScript("OnEnterPressed", function(self) self:ClearFocus() end)
+    f.text:SetScript("OnEnter", function(self)
+        GameTooltip:SetOwner(self, "ANCHOR_BOTTOM")
+        GameTooltip:AddLine("Click to mark, Ctrl+C to copy", 1, 0.85, 0.4)
+        GameTooltip:Show()
+    end)
+    f.text:SetScript("OnLeave", function() GameTooltip:Hide() end)
 
     -- row 2: step, the two kinds of picture, the search, and the window buttons
     local x = 12
@@ -611,7 +628,7 @@ end
 
 SLASH_FOREVERCOMPANIONBG1 = "/fcbg"
 SlashCmdList.FOREVERCOMPANIONBG = function(msg)
-    if not bar then Build(); test = BuildTest() end
+    if not bar then Build(); test = BuildTest(); bar:Hide() end -- (a new frame is shown: it must not count as open, or the first call would close it again)
     if bar:IsShown() and msg == "" then bar:Hide() test:Hide() return end
     if not list then
         lists.bg = Candidates()

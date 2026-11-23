@@ -16,7 +16,8 @@ ns.Manager = M
 
 local ROW_H, MAX_ROWS = 28, 19
 local WIN_W, WIN_H = 780, 620
-local state = { tab = "vendor", offset = 0 }
+local state = { tab = "vendor", offset = 0, query = "", kindFilter = "all", scope = "char" }
+local heads, actHead, qtyHead, searchBox, filterBtn, clearBtn
 local win, rows, tabs, menu, status, junkBtn, sellBtn, actionBtn, track
 local dirty, scanned = true, {}
 local autoOpened -- the window was opened by itself (with a merchant, the mailbox or the bank)
@@ -41,11 +42,31 @@ local function CatRules()
     ns.db.catRules = ns.db.catRules or {}
     return ns.db.catRules
 end
+-- rules that hold for this character only (ns.db.charRules[character].items / .cats); they go before those for all characters.
+-- A new rule holds for this character first; in the menu of a rule it can be changed to all characters.
+local function MeKey() return (ns.Acc and ns.Acc.MyKey and ns.Acc.MyKey()) or "?" end
+local function CharTable(field)
+    ns.db.charRules = ns.db.charRules or {}
+    local t = ns.db.charRules[MeKey()]
+    if not t then t = { items = {}, cats = {} }; ns.db.charRules[MeKey()] = t end
+    t[field] = t[field] or {}
+    return t[field]
+end
+local function CharRules() return CharTable("items") end
+local function CharCatRules() return CharTable("cats") end
+-- the rule that counts for an item / a kind: that of this character, or else the one for all
+local function RuleOf(id) return CharRules()[id] or Rules()[id] end
+local function CatRuleOf(id) return CharCatRules()[id] or CatRules()[id] end
+-- the rule as it is kept in one of the two places
+local function RuleIn(scope, id) return (scope == "char" and CharRules() or Rules())[id] end
+local function CatRuleIn(scope, id) return (scope == "char" and CharCatRules() or CatRules())[id] end
 
 local KIND = {
     keep = { label = L["Keep"], color = { 0.4, 0.85, 0.5 }, icon = "Interface\\Icons\\INV_Misc_Key_03" },
     mail = { label = L["Mail"], color = { 0.45, 0.68, 1 }, icon = "Interface\\Icons\\INV_Letter_15" },
     bank = { label = L["Bank"], color = { 0.7, 0.7, 0.72 }, icon = "Interface\\Icons\\INV_Misc_Bag_09" },
+    vendor = { label = L["Vendor"], color = { 1, 0.82, 0.25 }, icon = "Interface\\Icons\\INV_Misc_Coin_01" },
+    auction = { label = L["Auction"], color = { 1, 0.68, 0.25 }, icon = "Interface\\Icons\\INV_Misc_Coin_02" },
 }
 M.KIND = KIND
 
@@ -70,25 +91,47 @@ local PROF_NAMES = {
     enchanting = { "enchanting", "verzauberkunst" }, engineering = { "engineering", "ingenieurskunst" },
 }
 
-function M.CatRule(id) return CatRules()[id] end
-function M.SetCatRule(id, kind, target)
-    if kind then CatRules()[id] = { kind = kind, target = target } else CatRules()[id] = nil end
+-- A letter needs the first name and the surname (the surname is part of the name here); the name is shown in the colour of the class.
+local function FullName(rec)
+    return (rec.name or "?") .. ((rec.surname and rec.surname ~= "") and (" " .. rec.surname) or "")
+end
+local function Colored(rec, text)
+    local col = RAID_CLASS_COLORS and rec.class and RAID_CLASS_COLORS[rec.class]
+    text = text or FullName(rec)
+    if not col then return text end
+    return ("|cff%02x%02x%02x%s|r"):format(col.r * 255 + 0.5, col.g * 255 + 0.5, col.b * 255 + 0.5, text)
+end
+-- a name that is kept in a rule, in the colour of its character (a name that no known character has stays as it is)
+local function ColoredName(name)
+    for _, rec in ipairs(ns.Acc and ns.Acc.Chars and ns.Acc.Chars() or {}) do
+        if FullName(rec) == name or rec.name == name then return Colored(rec, name) end
+    end
+    return name
+end
+
+function M.CatRule(id) return CatRuleOf(id) end
+function M.SetCatRule(id, kind, target, scope)
+    local store = scope == "all" and CatRules() or CharCatRules()
+    if kind then store[id] = { kind = kind, target = target, char = scope ~= "all" or nil } else store[id] = nil end
     dirty = true
     if ns.Settings and ns.Settings.Refresh then ns.Settings.Refresh() end
 end
-function M.Rule(id) return Rules()[id] end
-function M.SetRule(id, kind, target)
+function M.Rule(id) return RuleOf(id) end
+function M.SetRule(id, kind, target, scope)
     if not id then return end
-    if kind then Rules()[id] = { kind = kind, target = target } else Rules()[id] = nil end
+    local store = scope == "all" and Rules() or CharRules()
+    if kind then store[id] = { kind = kind, target = target, char = scope ~= "all" or nil } else store[id] = nil end
     dirty = true
     if ns.Settings and ns.Settings.Refresh then ns.Settings.Refresh() end
 end
 -- all rules for single items, ordered: kind, then name (for the settings and the Rules tab; also items that are not in the bags)
 function M.RuleList()
     local list = {}
-    for id, r in pairs(Rules()) do
-        local name, _, icon = W.ItemData(id)
-        list[#list + 1] = { id = id, kind = r.kind, target = r.target, name = name or ("item:" .. id), icon = icon }
+    for _, store in ipairs({ Rules(), CharRules() }) do
+        for id, r in pairs(store) do
+            local name, _, icon = W.ItemData(id)
+            list[#list + 1] = { id = id, kind = r.kind, target = r.target, char = r.char, name = name or ("item:" .. id), icon = icon }
+        end
     end
     table.sort(list, function(a, b)
         if a.kind ~= b.kind then return a.kind < b.kind end
@@ -96,7 +139,21 @@ function M.RuleList()
     end)
     return list
 end
-function M.ClearRules() ns.db.itemRules = {}; ns.db.catRules = {}; dirty = true end
+-- takes every rule away (the kinds of items stay, they just have no rule any more), after a warning
+function M.ClearRules()
+    ns.db.itemRules, ns.db.catRules, ns.db.charRules = {}, {}, {}
+    dirty = true
+    if ns.Settings and ns.Settings.Refresh then ns.Settings.Refresh() end
+end
+function M.AskClearRules()
+    StaticPopupDialogs["FOREVERCOMPANION_CLEAR_RULES"] = StaticPopupDialogs["FOREVERCOMPANION_CLEAR_RULES"] or {
+        text = L["Delete ALL rules of ALL characters? This cannot be undone."],
+        button1 = L["Delete"], button2 = CANCEL or "Cancel",
+        OnAccept = function() M.ClearRules() end,
+        timeout = 0, whileDead = true, hideOnEscape = true, preferredIndex = 3,
+    }
+    StaticPopup_Show("FOREVERCOMPANION_CLEAR_RULES")
+end
 
 -- the character a kind of item is best sent to: the one with the profession that uses it (the highest skill), not the one playing now
 function M.Suggest(cat)
@@ -108,7 +165,7 @@ function M.Suggest(cat)
         if rec.key ~= me and rec.name then
             for _, sk in ipairs(rec.skills or {}) do
                 local n = tostring(sk.name or ""):lower()
-                if (n == names[1] or n == names[2]) and (not bestRank or (sk.rank or 0) > bestRank) then best, bestRank = rec.name, sk.rank or 0 end
+                if (n == names[1] or n == names[2]) and (not bestRank or (sk.rank or 0) > bestRank) then best, bestRank = FullName(rec), sk.rank or 0 end
             end
         end
     end
@@ -117,9 +174,9 @@ end
 function M.ApplySuggestions()
     local n = 0
     for _, cat in ipairs(CATS) do
-        if not CatRules()[cat.id] then
+        if not CatRuleOf(cat.id) then
             local who = M.Suggest(cat)
-            if who then CatRules()[cat.id] = { kind = "mail", target = who }; n = n + 1 end
+            if who then CharCatRules()[cat.id] = { kind = "mail", target = who, char = true }; n = n + 1 end
         end
     end
     dirty = true
@@ -139,11 +196,11 @@ end
 
 -- the rule of an item: its own, or that of its kind (cloth ...); soulbound items cannot be mailed
 local function RuleFor(it)
-    local own = Rules()[it.id]
+    local own = RuleOf(it.id)
     if own then return own end
     for _, cat in ipairs(CATS) do
         if cat.match(it) then
-            local r = CatRules()[cat.id]
+            local r = CatRuleOf(cat.id)
             if r and not (r.kind == "mail" and it.bound) then return r, cat end
         end
     end
@@ -199,8 +256,11 @@ end
 local function RuleText(rule)
     local k = rule and KIND[rule.kind]
     if not k then return "–", { 0.5, 0.5, 0.5 } end
-    return k.label .. ((rule.kind == "mail" and rule.target) and (": " .. rule.target) or ""), k.color
+    return k.label .. ((rule.kind == "mail" and rule.target) and (": " .. ColoredName(rule.target)) or "")
+        .. ((not rule.char) and ("  |cff8a806e(" .. L["all characters"] .. ")|r") or ""), k.color
 end
+M.RuleText = RuleText
+M.ColoredName = ColoredName
 
 -- the entries of a tab: items, with headers between the groups
 local function Entries(tab)
@@ -237,7 +297,7 @@ local function Entries(tab)
         end
         table.sort(order)
         for _, target in ipairs(order) do
-            out[#out + 1] = { header = L["To"] .. " " .. target, mailTo = target }
+            out[#out + 1] = { header = L["To"] .. " " .. ColoredName(target), mailTo = target }
             table.sort(groups[target], function(a, b) return a.name:lower() < b.name:lower() end)
             for _, it in ipairs(groups[target]) do out[#out + 1] = { it = it } end
         end
@@ -246,10 +306,23 @@ local function Entries(tab)
         for _, it in ipairs(items) do if it.rule and it.rule.kind == "bank" then list[#list + 1] = it end end
         table.sort(list, function(a, b) return a.name:lower() < b.name:lower() end)
         for _, it in ipairs(list) do out[#out + 1] = { it = it } end
-    else -- rules: the kinds of items, then the single items (also those that are not in the bags)
-        out[#out + 1] = { header = L["Kinds of items"] }
-        for _, cat in ipairs(CATS) do out[#out + 1] = { cat = cat } end
-        local single = M.RuleList()
+    else -- rules: all of them, the kinds of items and the single items (also those that are not in the bags), with the filter
+        local q = (state.query or ""):lower()
+        local kf = state.kindFilter or "all"
+        local function Passes(name, rule)
+            if q ~= "" and not tostring(name):lower():find(q, 1, true) then return false end
+            if kf == "all" then return true end
+            if kf == "none" then return rule == nil end
+            return rule ~= nil and rule.kind == kf
+        end
+        local kinds = {}
+        for _, cat in ipairs(CATS) do if Passes(cat.label, CatRuleOf(cat.id)) then kinds[#kinds + 1] = { cat = cat } end end
+        if #kinds > 0 then
+            out[#out + 1] = { header = L["Kinds of items"] }
+            for _, e in ipairs(kinds) do out[#out + 1] = e end
+        end
+        local single = {}
+        for _, e in ipairs(M.RuleList()) do if Passes(e.name, { kind = e.kind, char = e.char }) then single[#single + 1] = e end end
         if #single > 0 then
             out[#out + 1] = { header = L["Single items"] }
             for _, e in ipairs(single) do out[#out + 1] = { single = e } end
@@ -290,7 +363,9 @@ end
 function M.SellJunk()
     scanned = Scan()
     local junk = {}
-    for _, it in ipairs(scanned) do if it.verdict == "junk" and it.vendor > 0 then junk[#junk + 1] = it end end
+    for _, it in ipairs(scanned) do
+        if (it.verdict == "junk" or (it.rule and it.rule.kind == "vendor")) and it.vendor > 0 then junk[#junk + 1] = it end
+    end
     if #junk > 0 then M.Sell(junk) end
 end
 
@@ -315,6 +390,10 @@ function M.Attach(target, items)
         end
     end
     Run(slots, 0.25, MailOpen)
+    -- (the game fills the subject with the name of the first thing attached: ours replaces it once they are all in)
+    C_Timer.After(#slots * 0.25 + 0.5, function()
+        if MailOpen() and SendMailSubjectEditBox then SendMailSubjectEditBox:SetText(L["Mail from Forever Companion"]) end
+    end)
     Say((L["%d stacks put in the letter to %s. Check it and send it."]):format(#slots, target))
 end
 
@@ -334,18 +413,53 @@ local function Menu()
 end
 
 -- the lines that choose a rule: keep, bank, mail to each character, and taking the rule away
+-- a name that is typed (a character that is not in the list, or one of another account): first name and surname, as the game needs them
+local askDone
+function M.AskName(done)
+    askDone = done
+    StaticPopupDialogs["FOREVERCOMPANION_MAIL_NAME"] = StaticPopupDialogs["FOREVERCOMPANION_MAIL_NAME"] or {
+        text = L["Name of the character the mail goes to (first name and surname):"],
+        button1 = ACCEPT or "OK", button2 = CANCEL or "Cancel", hasEditBox = 1, maxLetters = 64,
+        OnAccept = function(self)
+            local box = self.editBox or self.EditBox
+            local name = box and strtrim(box:GetText() or "") or ""
+            if name ~= "" and askDone then askDone(name) end
+        end,
+        EditBoxOnEnterPressed = function(box)
+            local parent = box:GetParent()
+            local name = strtrim(box:GetText() or "")
+            if name ~= "" and askDone then askDone(name) end
+            parent:Hide()
+        end,
+        EditBoxOnEscapePressed = function(box) box:GetParent():Hide() end,
+        timeout = 0, whileDead = true, hideOnEscape = true, preferredIndex = 3,
+    }
+    StaticPopup_Show("FOREVERCOMPANION_MAIL_NAME")
+end
+
 local function RuleRows(set, current)
     local out = {}
+    local me
+    for _, rec in ipairs(ns.Acc and ns.Acc.Chars and ns.Acc.Chars() or {}) do if rec.key == MeKey() then me = rec end end
+    out[#out + 1] = { kind = "header", label = L["Applies to"] }
+    out[#out + 1] = { kind = "radio", state = state.scope == "char" and "all" or "none", label = L["Only"] .. " " .. (me and Colored(me) or UnitName("player")),
+        onClick = function() state.scope = "char" end }
+    out[#out + 1] = { kind = "radio", state = state.scope == "all" and "all" or "none", label = L["All characters"],
+        onClick = function() state.scope = "all" end }
+    out[#out + 1] = { kind = "separator" }
     out[#out + 1] = { kind = "action", label = L["Keep it"], icon = KIND.keep.icon, close = true, onClick = function() set("keep") end }
     out[#out + 1] = { kind = "action", label = L["Store it in the bank"], icon = KIND.bank.icon, close = true, onClick = function() set("bank") end }
+    out[#out + 1] = { kind = "action", label = L["Always sell to vendor"], icon = KIND.vendor.icon, close = true, onClick = function() set("vendor") end }
+    out[#out + 1] = { kind = "action", label = L["Always sell at auction"], icon = KIND.auction.icon, close = true, onClick = function() set("auction") end }
     out[#out + 1] = { kind = "separator" }
     local me = ns.Acc and ns.Acc.MyKey and ns.Acc.MyKey()
     for _, rec in ipairs(ns.Acc and ns.Acc.Chars and ns.Acc.Chars() or {}) do
         if rec.name and rec.key ~= me then
-            out[#out + 1] = { kind = "action", label = L["Always mail to"] .. " " .. rec.name, icon = KIND.mail.icon, close = true,
-                onClick = function() set("mail", rec.name) end }
+            out[#out + 1] = { kind = "action", label = L["Always mail to"] .. " " .. Colored(rec), icon = KIND.mail.icon, close = true,
+                onClick = function() set("mail", FullName(rec)) end }
         end
     end
+    out[#out + 1] = { kind = "action", label = L["Mail to another name ..."], icon = KIND.mail.icon, close = true, onClick = function() M.AskName(function(name) set("mail", name) end) end }
     if current then
         out[#out + 1] = { kind = "separator" }
         out[#out + 1] = { kind = "action", label = L["Remove the rule"], close = true, onClick = function() set(nil) end }
@@ -353,10 +467,14 @@ local function RuleRows(set, current)
     return out
 end
 
-local function OpenItemMenu(anchor, it)
+-- (the menu starts with the place where the rule is kept now; a kind or an item without a rule starts with this character)
+local function ScopeOfRule(rule) state.scope = (rule and not rule.char) and "all" or "char" end
+
+local function OpenItemMenu(anchor, it, scope)
+    if scope then state.scope = scope else ScopeOfRule(RuleOf(it.id)) end
     Menu():Open(anchor, function()
         local out = { { kind = "header", label = it.name } }
-        for _, row in ipairs(RuleRows(function(kind, target) M.SetRule(it.id, kind, target) end, Rules()[it.id])) do out[#out + 1] = row end
+        for _, row in ipairs(RuleRows(function(kind, target) M.SetRule(it.id, kind, target, state.scope) end, RuleIn(state.scope, it.id))) do out[#out + 1] = row end
         if MerchantOpen() and (it.vendor or 0) > 0 and it.slots and not (it.rule and it.rule.kind == "keep") then
             out[#out + 1] = { kind = "separator" }
             out[#out + 1] = { kind = "action", label = L["Sell it now"], icon = "Interface\\Icons\\INV_Misc_Coin_01", close = true, onClick = function() M.Sell({ it }) end }
@@ -365,15 +483,17 @@ local function OpenItemMenu(anchor, it)
     end, true)
 end
 
+
 function M.OpenCatMenu(anchor, cat)
+    ScopeOfRule(CatRuleOf(cat.id))
     Menu():Open(anchor, function()
         local out = { { kind = "header", label = cat.label } }
         local who = M.Suggest(cat)
-        if who and not CatRules()[cat.id] then
-            out[#out + 1] = { kind = "action", label = L["Suggestion"] .. ": " .. who, icon = KIND.mail.icon, close = true, onClick = function() M.SetCatRule(cat.id, "mail", who) end }
+        if who and not CatRuleOf(cat.id) then
+            out[#out + 1] = { kind = "action", label = L["Set rule: Send to"] .. " " .. ColoredName(who), icon = KIND.mail.icon, close = true, onClick = function() M.SetCatRule(cat.id, "mail", who, state.scope) end }
             out[#out + 1] = { kind = "separator" }
         end
-        for _, row in ipairs(RuleRows(function(kind, target) M.SetCatRule(cat.id, kind, target) end, CatRules()[cat.id])) do out[#out + 1] = row end
+        for _, row in ipairs(RuleRows(function(kind, target) M.SetCatRule(cat.id, kind, target, state.scope) end, CatRuleIn(state.scope, cat.id))) do out[#out + 1] = row end
         return out
     end, true)
 end
@@ -382,7 +502,7 @@ end
 local COLS = { qty = 342, vendor = 452, ah = 550, gain = 620, mark = 636 }
 
 local VERDICT_TEXT = {
-    junk = { L["Junk"], { 0.62, 0.62, 0.62 } }, vendor = { L["Vendor"], { 1, 0.82, 0.25 } }, ah = { L["Auction house"], { 1, 0.68, 0.25 } },
+    junk = { L["Junk"], { 0.62, 0.62, 0.62 } }, vendor = { L["Vendor"], { 1, 0.82, 0.25 } }, ah = { L["Auction"], { 1, 0.68, 0.25 } },
     none = { "–", { 0.5, 0.5, 0.5 } },
 }
 
@@ -438,7 +558,8 @@ local function MakeRow(i)
         if self.it then OpenItemMenu(self, self.it)
         elseif self.cat then M.OpenCatMenu(self, self.cat)
         elseif self.single then
-            OpenItemMenu(self, { id = self.single.id, name = self.single.name, rule = Rules()[self.single.id], vendor = 0 })
+            local scope = self.single.char and "char" or "all" -- (the line that was clicked: its own rule)
+            OpenItemMenu(self, { id = self.single.id, name = self.single.name, rule = RuleIn(scope, self.single.id), vendor = 0 }, scope)
         end
     end)
     r:SetScript("OnEnter", function(self)
@@ -447,7 +568,12 @@ local function MakeRow(i)
         GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
         if self.it and self.it.link then
             pcall(GameTooltip.SetHyperlink, GameTooltip, self.it.link)
-            if self.it.ruleCat then GameTooltip:AddLine(L["Rule of the kind"] .. ": " .. self.it.ruleCat.label, 0.6, 0.8, 1) end
+            if self.it.rule then
+                GameTooltip:AddLine(" ")
+                local text = RuleText(self.it.rule)
+                GameTooltip:AddLine(L["Rule"] .. ": " .. text, 0.9, 0.9, 0.9)
+                if self.it.ruleCat then GameTooltip:AddLine(L["Rule of the kind"] .. ": " .. self.it.ruleCat.label, 0.6, 0.8, 1) end
+            end
         elseif self.it then GameTooltip:AddLine(self.it.name)
         elseif self.cat then GameTooltip:AddLine(self.cat.label, 1, 0.85, 0.4)
         else GameTooltip:AddLine(self.single.name, 1, 0.85, 0.4) end
@@ -493,6 +619,24 @@ local function Render()
     else
         track:Hide()
     end
+    -- the rules tab has no prices: the rule stands right after the amount
+    local rulesTab = state.tab == "rules"
+    local mx = rulesTab and (COLS.qty - 24) or COLS.mark
+    for _, k in ipairs({ "qty", "vendor", "ah", "gain" }) do heads[k]:SetShown(not rulesTab) end
+    searchBox:SetShown(rulesTab)
+    filterBtn:SetShown(rulesTab)
+    clearBtn:SetShown(rulesTab)
+    actHead:ClearAllPoints()
+    actHead:SetPoint("LEFT", win, "TOPLEFT", mx + 8, -18)
+    for i = 1, MAX_ROWS do
+        local r = rows[i]
+        r.mark:ClearAllPoints()
+        r.mark:SetPoint("LEFT", r, "LEFT", mx, 0)
+        r.verdict:SetWidth(rulesTab and 230 or 112)
+        r.act:ClearAllPoints()
+        if rulesTab then r.act:SetPoint("LEFT", r, "LEFT", mx, 0) else r.act:SetPoint("RIGHT", -4, 0) end
+        r.act:SetWidth(rulesTab and 270 or 120)
+    end
     local inBags = {}
     for _, it in ipairs(scanned) do inBags[it.id] = it end
     for i = 1, MAX_ROWS do
@@ -524,15 +668,15 @@ local function Render()
                 r.name:SetText(e.cat.label)
                 local n = 0
                 for _, it in ipairs(scanned) do if e.cat.match(it) then n = n + 1 end end
-                r.qty:SetText(n > 0 and tostring(n) or "")
-                local rule = CatRules()[e.cat.id]
+                r.qty:SetText("")
+                local rule = CatRuleOf(e.cat.id)
                 local text, col = RuleText(rule)
                 r.verdict:SetText(text); r.verdict:SetTextColor(col[1], col[2], col[3])
                 if rule then r.mark:SetTexture(KIND[rule.kind].icon); r.mark:Show() end
                 local who = (not rule) and M.Suggest(e.cat)
                 if who then
-                    r.act.text:SetText(L["To"] .. " " .. who) -- (an arrow is not in the font)
-                    r.act:SetScript("OnClick", function() M.SetCatRule(e.cat.id, "mail", who) end)
+                    r.act.text:SetText(L["Set rule: Send to"] .. " " .. ColoredName(who))
+                    r.act:SetScript("OnClick", function() M.SetCatRule(e.cat.id, "mail", who, "char") end)
                     r.act:Show()
                 end
             elseif e.single then
@@ -540,8 +684,8 @@ local function Render()
                 r.icon:Show(); r.icon:SetTexture(e.single.icon or "Interface\\Icons\\INV_Misc_QuestionMark")
                 r.name:SetText(e.single.name)
                 local here = inBags[e.single.id]
-                r.qty:SetText(here and ("×" .. here.count) or "")
-                local text, col = RuleText(Rules()[e.single.id])
+                r.qty:SetText("")
+                local text, col = RuleText({ kind = e.single.kind, target = e.single.target, char = e.single.char })
                 r.mark:SetTexture(KIND[e.single.kind].icon); r.mark:Show()
                 r.verdict:SetText(text); r.verdict:SetTextColor(col[1], col[2], col[3])
             else
@@ -566,7 +710,18 @@ local function Render()
                 end
                 local k = it.rule and KIND[it.rule.kind]
                 if k then
+                    -- (short: the column is narrow; the mail tab has the name over the group, and the tooltip has the whole rule)
                     local text, c = RuleText(it.rule)
+                    if it.rule.kind == "mail" then
+                        text = k.label
+                        if state.tab ~= "mail" and it.rule.target then
+                            local who = it.rule.target
+                            for _, rec in ipairs(ns.Acc and ns.Acc.Chars and ns.Acc.Chars() or {}) do
+                                if FullName(rec) == it.rule.target then who = Colored(rec, rec.name) break end
+                            end
+                            text = text .. ": " .. who
+                        end
+                    end
                     r.mark:SetTexture(k.icon); r.mark:Show()
                     r.verdict:SetText(text); r.verdict:SetTextColor(c[1], c[2], c[3])
                 else
@@ -581,7 +736,7 @@ local function Render()
     local open = (state.tab == "vendor" and MerchantOpen()) or (state.tab == "mail" and MailOpen()) or (state.tab == "bank" and BankOpen())
     local junkN, junkSum = 0, 0
     for _, it in ipairs(scanned) do
-        if it.verdict == "junk" and it.vendor > 0 then junkN = junkN + 1; junkSum = junkSum + it.vendor * it.count end
+        if (it.verdict == "junk" or (it.rule and it.rule.kind == "vendor")) and it.vendor > 0 then junkN = junkN + 1; junkSum = junkSum + it.vendor * it.count end
     end
     junkBtn:Hide(); sellBtn:Hide(); actionBtn:Hide()
     if state.tab == "vendor" then
@@ -603,14 +758,15 @@ local function Render()
         actionBtn:Show()
         actionBtn:SetAlpha(open and 1 or 0.5)
     else
-        status:SetText(L["Click a line to set a rule."])
+        status:SetText("")
+        filterBtn.text:SetText(state.kindFilter == "all" and L["All rules"] or (state.kindFilter == "none" and L["No rule"] or KIND[state.kindFilter].label))
         actionBtn.text:SetText(L["All suggestions"])
         actionBtn:SetScript("OnClick", function() M.ApplySuggestions() end)
         actionBtn:Show()
         actionBtn:SetAlpha(1)
     end
-    if #entries == 0 or (state.tab ~= "rules" and #entries == 0) then
-        win.empty:SetText(state.tab == "vendor" and L["Nothing to sell."]
+    if #entries == 0 then
+        win.empty:SetText(state.tab == "rules" and L["No rule matches."] or state.tab == "vendor" and L["Nothing to sell."]
             or (state.tab == "mail" and L["Nothing to mail. Set a rule in the Vendor tab."] or L["Nothing for the bank. Set a rule in the Vendor tab."]))
         win.empty:Show()
     else
@@ -698,12 +854,15 @@ local function Build()
         fs:SetJustifyH("RIGHT")
         fs:SetTextColor(unpack(C.muted))
         fs:SetText(text)
+        heads[key] = fs
     end
+    heads = {}
     local iHead = top:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
     iHead:SetPoint("LEFT", win, "TOPLEFT", 44, -18)
     iHead:SetTextColor(unpack(C.muted))
     iHead:SetText(L["Item"])
     Head(L["Qty"], "qty", 40)
+    qtyHead = heads.qty
     Head(L["Vendor"], "vendor", 100)
     Head(L["AH"], "ah", 96)
     Head(L["Gain"], "gain", 64)
@@ -711,6 +870,7 @@ local function Build()
     vHead:SetPoint("LEFT", win, "TOPLEFT", COLS.mark + 8, -18)
     vHead:SetTextColor(unpack(C.muted))
     vHead:SetText(L["Action"])
+    actHead = vHead
 
     rows = {}
     for i = 1, MAX_ROWS do rows[i] = MakeRow(i) end
@@ -756,6 +916,50 @@ local function Build()
     actionBtn = W.NewButton(win, "", 170, 26)
     actionBtn:SetPoint("BOTTOMRIGHT", -16, 14)
     actionBtn:Hide()
+
+    -- (the tab of the rules: a search for names, and a filter for the kind of rule)
+    searchBox = W.NewPlate(top, C.inset)
+    searchBox:SetSize(210, 26)
+    searchBox:SetPoint("BOTTOMLEFT", win, "BOTTOMLEFT", 16, 14)
+    local edit = CreateFrame("EditBox", nil, searchBox)
+    edit:SetPoint("TOPLEFT", 8, -4)
+    edit:SetPoint("BOTTOMRIGHT", -8, 4)
+    edit:SetAutoFocus(false)
+    edit:SetFontObject("GameFontHighlight")
+    local hint = searchBox:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    hint:SetPoint("LEFT", 10, 0)
+    hint:SetTextColor(unpack(C.muted))
+    hint:SetText(L["Search"])
+    edit:SetScript("OnTextChanged", function(self)
+        state.query = self:GetText() or ""
+        hint:SetShown(state.query == "")
+        state.offset = 0
+        dirty = true
+    end)
+    edit:SetScript("OnEscapePressed", function(self) self:ClearFocus() end)
+    edit:SetScript("OnEnterPressed", function(self) self:ClearFocus() end)
+    searchBox:Hide()
+    filterBtn = W.NewButton(win, L["All rules"], 130, 26)
+    filterBtn:SetPoint("BOTTOMLEFT", win, "BOTTOMLEFT", 234, 14)
+    filterBtn:SetScript("OnClick", function(self)
+        Menu():Open(self, function()
+            local out = {}
+            local function Pick(label, key, icon)
+                out[#out + 1] = { kind = "radio", state = state.kindFilter == key and "all" or "none", label = label, icon = icon, close = true,
+                    onClick = function() state.kindFilter = key; state.offset = 0; dirty = true end }
+            end
+            Pick(L["All rules"], "all")
+            for _, key in ipairs({ "keep", "mail", "bank", "vendor", "auction" }) do Pick(KIND[key].label, key, KIND[key].icon) end
+            out[#out + 1] = { kind = "separator" }
+            Pick(L["No rule"], "none")
+            return out
+        end)
+    end)
+    filterBtn:Hide()
+    clearBtn = W.NewButton(win, L["Delete all rules"], 150, 26)
+    clearBtn:SetPoint("BOTTOMRIGHT", win, "BOTTOMRIGHT", -194, 14)
+    clearBtn:SetScript("OnClick", function() M.AskClearRules() end)
+    clearBtn:Hide()
 
     -- the scroll bar: a track at the right edge of the table, with a thumb that can be dragged
     track = CreateFrame("Frame", nil, win)
@@ -839,7 +1043,7 @@ end
 -- kept here: while the event of closing comes, the game's frame may still count as shown. Junk is sold when a merchant opens.
 local open = { merchant = false, mail = false, bank = false }
 local ev = CreateFrame("Frame")
-for _, e in ipairs({ "MERCHANT_SHOW", "MERCHANT_CLOSED", "MAIL_SHOW", "MAIL_CLOSED", "BANKFRAME_OPENED", "BANKFRAME_CLOSED", "BAG_UPDATE_DELAYED" }) do
+for _, e in ipairs({ "MERCHANT_SHOW", "MERCHANT_CLOSED", "MAIL_SHOW", "MAIL_CLOSED", "BANKFRAME_OPENED", "BANKFRAME_CLOSED", "PLAYER_INTERACTION_MANAGER_FRAME_HIDE", "BAG_UPDATE_DELAYED" }) do
     pcall(ev.RegisterEvent, ev, e)
 end
 local function OpenFor(tab, which)
@@ -848,17 +1052,37 @@ local function OpenFor(tab, which)
     local was = win and win:IsShown()
     M.Show(tab, true)
     if not was then autoOpened = true end
+    if autoOpened and M.Watch then M.Watch() end
 end
 local function Closed(which)
     open[which] = false
+    C_Timer.After(0.3, function() M.Reconcile() end)
     if autoOpened and win and win:IsShown() and not (open.merchant or open.mail or open.bank) then
         win:Hide()
         autoOpened = nil
     end
     dirty = true
 end
+-- (some versions of the game send other events for leaving the mailbox or the bank, or none that arrive: so what is open is also looked up
+-- on the frames of the game, a little after each closing and every half second while the window stands there by itself)
+local watch
+local function Reconcile()
+    if MerchantFrame then open.merchant = MerchantFrame:IsShown() and true or false end
+    if MailFrame then open.mail = MailFrame:IsShown() and true or false end
+    if BankFrame then open.bank = BankFrame:IsShown() and true or false end
+    if autoOpened and win and win:IsShown() and not (open.merchant or open.mail or open.bank) then
+        win:Hide()
+        autoOpened = nil
+    end
+    if not (autoOpened and win and win:IsShown()) and watch then watch:Cancel(); watch = nil end
+end
+M.Reconcile = Reconcile
+function M.Watch()
+    if not watch then watch = C_Timer.NewTicker(0.5, Reconcile) end
+end
 ev:SetScript("OnEvent", function(_, event)
     if not ns.db then return end
+    if event == "PLAYER_INTERACTION_MANAGER_FRAME_HIDE" then C_Timer.After(0.3, Reconcile); return end
     if event == "BAG_UPDATE_DELAYED" then dirty = true
     elseif event == "MERCHANT_SHOW" then
         OpenFor("vendor", "merchant")

@@ -523,11 +523,21 @@ local function NewTable(parent, owner)
         end
         content:SetWidth(width)
         -- the column titles
+        local headH = self.headH or ROW_H
+        head:SetHeight(headH)
         for i, col in ipairs(self.cols) do
             local b = self.heads[i]
             if not b then
                 b = CreateFrame("Button", nil, head)
-                b:SetHeight(ROW_H)
+                b:SetHeight(headH)
+                b:SetScript("OnEnter", function(self)
+                    if self.col and self.col.tip then
+                        GameTooltip:SetOwner(self, "ANCHOR_BOTTOM")
+                        GameTooltip:AddLine(self.col.tip, 1, 0.85, 0.4)
+                        GameTooltip:Show()
+                    end
+                end)
+                b:SetScript("OnLeave", function() GameTooltip:Hide() end)
                 b.text = b:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
                 b.text:SetPoint("LEFT", 8, 0)
                 b.text:SetPoint("RIGHT", -4, 0)
@@ -541,12 +551,38 @@ local function NewTable(parent, owner)
                 self.heads[i] = b
             end
             b.col = col
+            b:SetHeight(headH)
             b:ClearAllPoints()
             b:SetPoint("TOPLEFT", head, "TOPLEFT", self.xs[i], 0)
             b:SetWidth(self.ws[i])
             b.text:SetJustifyH(col.align or "LEFT")
             local arrow = (self.sortId == col.id) and (self.sortAsc and " ^" or " v") or ""
             b.text:SetText((col.title or "") .. arrow)
+            if col.vname then
+                -- (text cannot be turned in this game: the name stands letter under letter, with a picture on top)
+                b.text:SetText("")
+                if not b.pic then
+                    b.pic = b:CreateTexture(nil, "ARTWORK")
+                    b.pic:SetSize(18, 18)
+                    b.vtext = b:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+                    b.vtext:SetJustifyH("CENTER")
+                    b.vtext:SetWordWrap(true)
+                    b.vtext:SetSpacing(0)
+                end
+                b.pic:ClearAllPoints()
+                b.pic:SetPoint("TOP", b, "TOP", 0, -6)
+                b.pic:SetTexture(col.pic and col.pic.tex)
+                if col.pic and col.pic.coords then b.pic:SetTexCoord(unpack(col.pic.coords)) else b.pic:SetTexCoord(0, 1, 0, 1) end
+                b.pic:Show()
+                b.vtext:ClearAllPoints()
+                b.vtext:SetPoint("TOP", b.pic, "BOTTOM", 0, -4)
+                b.vtext:SetWidth(math.max(12, self.ws[i]))
+                b.vtext:SetText(col.vname)
+                b.vtext:Show()
+            elseif b.pic then
+                b.pic:Hide()
+                b.vtext:Hide()
+            end
             b.text:SetTextColor(unpack(self.sortId == col.id and { 1, 0.95, 0.7 } or { 0.9, 0.78, 0.5 }))
             b:Show()
         end
@@ -756,6 +792,7 @@ local function NewTable(parent, owner)
         if same then for i, c in ipairs(cols) do if self.cols[i].id ~= c.id then same = false end end end
         self.cols, self.data = cols, data
         self.noHeader = opts.noHeader
+        self.headH = opts.headH
         if not same or opts.resetSort then
             self.sortId, self.sortAsc = opts.sort, opts.asc ~= false
         end
@@ -1845,11 +1882,30 @@ local function ViewItems()
     table.insert(bar.items, #bar.items, { label = L["Characters"] .. (nHidden > 0 and (" (-" .. nHidden .. ")") or ""),
         icon = "Interface\\Icons\\INV_Misc_GroupLooking", gen = CharsMenu, on = nHidden > 0 })
     local cols = {
-        { id = "item", title = L["Item"], flex = 1.2, sort = true },
-        { id = "total", title = L["Total"], w = 64, align = "RIGHT", sort = true, desc = true },
-        { id = "value", title = L["Value"], w = 110, align = "RIGHT", sort = true, desc = true },
-        { id = "who", title = L["Characters"], flex = 1.6 },
+        { id = "item", title = L["Item"], flex = 1.2, min = 190, sort = true },
+        { id = "total", title = L["Total"], w = 60, align = "RIGHT", sort = true, desc = true },
+        { id = "value", title = L["Value"], w = 104, align = "RIGHT", sort = true, desc = true },
     }
+    -- A column for each character, its class picture over its first name written downwards (the full name in the tooltip of the head).
+    -- Text cannot be turned in this game, so the letters stand under each other.
+    local chars = ns.Acc.Chars(view.hiddenChars)
+    local charCol = {}
+    local function Stacked(name, hex)
+        local letters = {}
+        for ch in tostring(name or "?"):gmatch("[%z\1-\127\194-\244][\128-\191]*") do letters[#letters + 1] = ch end
+        if #letters > 8 then
+            for k = #letters, 8, -1 do letters[k] = nil end
+            letters[8] = "."
+        end
+        return hex .. table.concat(letters, "\n") .. "|r"
+    end
+    for i, rec in ipairs(chars) do
+        local t = CLASS_ICON_TCOORDS and rec.class and CLASS_ICON_TCOORDS[rec.class]
+        cols[#cols + 1] = { id = "c" .. i, w = 34, align = "CENTER", sort = true, desc = true, tip = ns.Acc.NameOf(rec),
+            pic = { tex = "Interface\\WorldStateFrame\\Icons-Classes", coords = t },
+            vname = Stacked(rec.name, ClassHex(rec.class)) }
+        charCol[rec.key] = i
+    end
     local data, n, worth = {}, 0, 0
     for id in pairs(ns.Acc.AllItemIds()) do
         local name = ns.Acc.ItemName(id)
@@ -1864,28 +1920,32 @@ local function ViewItems()
             end
             if total > 0 and PassesFilters(id, tradable) then
                 local shown = HideBoundOn() and tradable or total
-                local parts = {}
-                for i = 1, math.min(3, #owners) do
-                    local amount = HideBoundOn() and owners[i].tradable or owners[i].sum
-                    if amount > 0 then
-                        parts[#parts + 1] = ClassHex(owners[i].rec.class) .. ns.Acc.NameOf(owners[i].rec) .. "|r " .. MUTED .. amount .. "|r"
+                local cells = {}
+                local sortBy = {}
+                for _, o in ipairs(owners) do
+                    local i = charCol[o.rec.key]
+                    local amount = HideBoundOn() and o.tradable or o.sum
+                    if i and amount > 0 then
+                        cells[i] = ClassHex(o.rec.class) .. amount .. "|r"
+                        sortBy["c" .. i] = amount
                     end
                 end
-                if #owners > 3 then parts[#parts + 1] = MUTED .. ("+%d"):format(#owners - 3) .. "|r" end
                 local unit = ns.Value.Get(id)
                 worth = worth + unit * shown
                 n = n + 1
                 if n <= 500 then
                     local link = ns.Acc.LinkOf(id)
-                    data[#data + 1] = { cells = { { text = link, icon = ItemIcon(id) }, tostring(shown), unit > 0 and Money(unit * shown) or "", table.concat(parts, "   ") },
-                        sort = { item = name:lower(), total = shown, value = unit * shown }, link = link }
+                    local row = { { text = link, icon = ItemIcon(id) }, tostring(shown), unit > 0 and Money(unit * shown) or "" }
+                    for i = 1, #chars do row[#row + 1] = cells[i] or "" end
+                    sortBy.item, sortBy.total, sortBy.value = name:lower(), shown, unit * shown
+                    data[#data + 1] = { cells = row, sort = sortBy, link = link }
                 end
             end
         end
     end
     heading:SetText(L["Items & materials"])
     subheading:SetText(("%d %s  ·  %s"):format(n, L["items"], Money(worth)))
-    return cols, data, n > 500 and L["Showing the first 500 items. Narrow the filter."] or L["Everything the characters carry, store, have in the mail, auction or wear."], { sort = "value", asc = false }
+    return cols, data, n > 500 and L["Showing the first 500 items. Narrow the filter."] or L["Everything the characters carry, store, have in the mail, auction or wear."], { sort = "value", asc = false, headH = (#chars > 0) and 112 or nil }
 end
 
 -- every recipe any character knows, and what can be made from what the account holds
