@@ -84,8 +84,8 @@ local VIEWS = {
         cols = {
             { "price", 92, L["Price"] },
             { "avg", 92, L["Avg. 7d"], L["The average price of the last 7 days (from your scans)."], 2 },
-            { "demand", 70, L["Demand"], L["Estimated sales per day: pieces that left the offers between your scans. Expired and cancelled auctions count too, and new listings hide some, so take it as a guide."], 3 },
-            { "supply", 70, L["Supply"], L["How many pieces were on offer at the last scan."], 1 },
+            { "demand", 70, L["Demand"], L["Estimated sales per day: pieces that left the offers between your scans. Expired and cancelled auctions count too, and new listings hide some, so take it as a guide."], 1 },
+            { "supply", 70, L["Supply"], L["How many pieces were on offer at the last scan."], 3 },
         },
         sort = "name", asc = true,
     },
@@ -95,8 +95,8 @@ local VIEWS = {
             { "price", 92, L["Price"] },
             { "avg", 88, L["Avg. 7d"], nil, 2 },
             { "diff", 66, L["vs. avg."], L["The price now against the average of the last 7 days."] },
-            { "supply", 60, L["Supply"], L["How many pieces were on offer at the last scan."], 1 },
-            { "demand", 66, L["Demand"], L["Estimated sales per day: pieces that left the offers between your scans. Expired and cancelled auctions count too, and new listings hide some, so take it as a guide."], 4 },
+            { "supply", 60, L["Supply"], L["How many pieces were on offer at the last scan."], 4 },
+            { "demand", 66, L["Demand"], L["Estimated sales per day: pieces that left the offers between your scans. Expired and cancelled auctions count too, and new listings hide some, so take it as a guide."], 1 },
             { "trend", DAYS * (BAR_W + BAR_GAP) + 14, L["Trend"], L["Price of the last 7 days; the last bar is the latest scan."], 3 },
         },
         sort = "diff", asc = true,
@@ -165,10 +165,8 @@ local function Compute(listWidth)
     for view, def in pairs(VIEWS) do
         local list, sum = {}, 0
         for _, col in ipairs(def.cols) do
-            -- Market and Trends with a filter set: the supply is shown instead of the demand (what is on offer of what was filtered for)
-            if not ((view == "all" or view == "trend") and col[1] == "demand" and T.anyFilter) then
-                list[#list + 1] = col; sum = sum + col[2]
-            end
+            -- (the demand stays with a filter set too: the supply is shown beside it, and a narrow list gives way to it last)
+            list[#list + 1] = col; sum = sum + col[2]
         end
         while sum > avail do
             local best, at

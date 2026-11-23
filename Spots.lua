@@ -341,12 +341,16 @@ local function NewMinimapPin()
     b:SetScript("OnEnter", function(self)
         W.Ease(self, "hv", 1, 14, function(o, val) o:SetGrow(val) end)
         GameTooltip:SetOwner(self, "ANCHOR_LEFT")
-        GameTooltip:AddLine(self.title or "", 1, 0.85, 0.4)
-        if self.sub then GameTooltip:AddLine(self.sub, 0.6, 0.6, 0.6) end
-        if self.count and self.count > 1 then
-            GameTooltip:AddLine((self.node and L["Looted %d times"] or L["Seen %d times"]):format(self.count), 0.8, 0.8, 0.8)
+        -- a plant or a vein: its tooltip as in the world (name, then the lines of the settings); the rest as before
+        local named = self.key and self.node and ns.TipNodeFor and ns.TipNodeFor(GameTooltip, self.key, self.spot)
+        if not named then
+            GameTooltip:AddLine(self.title or "", 1, 0.85, 0.4)
+            if self.sub then GameTooltip:AddLine(self.sub, 0.6, 0.6, 0.6) end
+            if self.count and self.count > 1 then
+                GameTooltip:AddLine((self.node and L["Looted %d times"] or L["Seen %d times"]):format(self.count), 0.8, 0.8, 0.8)
+            end
+            GameTooltip:AddDoubleLine(self.lastLabel or L["Last used"], ns.Ago(self.last), 0.8, 0.8, 0.8, 1, 1, 1)
         end
-        GameTooltip:AddDoubleLine(self.lastLabel or L["Last used"], ns.Ago(self.last), 0.8, 0.8, 0.8, 1, 1, 1)
         local away = ns.SpotDistance(self.spot)
         if away then GameTooltip:AddDoubleLine(L["Distance"], away .. " " .. L["yd"], 0.8, 0.8, 0.8, 1, 1, 1) end
         GameTooltip:Show()
@@ -356,6 +360,96 @@ local function NewMinimapPin()
         GameTooltip:Hide()
     end)
     return b
+end
+
+-- The glow of the pins: resources close to the player sparkle (a turning star, rings that go out, a halo), the closer the stronger. How
+-- far, how strong and whether all of them sparkle a little is set in the settings (map page). Drawn by the watcher below, every frame.
+local STAR = "Interface\\Cooldown\\star4"
+local RING = "Interface\\Cooldown\\ping4"
+local HALO = "Interface\\Buttons\\UI-ActionButton-Border"
+local FX_STYLES = {
+    -- star size, star alpha, rings, halo size (0: none), speed
+    subtle = { star = 24, alpha = 0.6, rings = 0, halo = 0, speed = 0.6 },
+    strong = { star = 38, alpha = 0.95, rings = 1, halo = 40, speed = 1 },
+    maximum = { star = 58, alpha = 1, rings = 2, halo = 64, speed = 1.6 },
+}
+
+local function FxOf(pin)
+    local fx = pin.fx
+    if fx then return fx end
+    fx = {}
+    fx.halo = pin:CreateTexture(nil, "OVERLAY", nil, 5)
+    fx.halo:SetTexture(HALO)
+    fx.halo:SetBlendMode("ADD")
+    fx.halo:SetVertexColor(1, 0.8, 0.35)
+    fx.star = pin:CreateTexture(nil, "OVERLAY", nil, 6)
+    fx.star:SetTexture(STAR)
+    fx.star:SetBlendMode("ADD")
+    fx.star:SetVertexColor(1, 0.93, 0.6)
+    fx.star2 = pin:CreateTexture(nil, "OVERLAY", nil, 6)
+    fx.star2:SetTexture(STAR)
+    fx.star2:SetBlendMode("ADD")
+    fx.star2:SetVertexColor(1, 1, 0.9)
+    fx.rings = {}
+    for i = 1, 2 do
+        local r = pin:CreateTexture(nil, "OVERLAY", nil, 4)
+        r:SetTexture(RING)
+        r:SetBlendMode("ADD")
+        r:SetVertexColor(1, 0.85, 0.4)
+        fx.rings[i] = r
+    end
+    pin.fx = fx
+    return fx
+end
+
+local function HideFx(pin)
+    local fx = pin.fx
+    if not fx then return end
+    fx.halo:Hide(); fx.star:Hide(); fx.star2:Hide()
+    for _, r in ipairs(fx.rings) do r:Hide() end
+end
+
+local function DrawFx(pin, t)
+    local level = pin.fxLevel or 0
+    if level <= 0 or not pin:IsShown() then HideFx(pin) return end
+    local st = FX_STYLES[pin.fxStyle or "strong"] or FX_STYLES.strong
+    local fx = FxOf(pin)
+    local near = math.min(level, 2) -- 0.5 (quiet, far) to 2 (right here)
+    local k = near * ((level < 1) and 1 or 0.75)
+    local pulse = 0.65 + 0.35 * math.sin(t * 3.2 * st.speed + (pin.fxPhase or 0))
+    -- the star: turns, and a second one turns the other way
+    local size = st.star * k
+    fx.star:SetSize(size, size)
+    fx.star:SetRotation(t * 0.9 * st.speed)
+    fx.star:SetAlpha(math.min(1, st.alpha * pulse))
+    fx.star:ClearAllPoints(); fx.star:SetPoint("CENTER", pin, "CENTER", 0, 0)
+    fx.star:Show()
+    fx.star2:SetSize(size * 0.7, size * 0.7)
+    fx.star2:SetRotation(-t * 1.4 * st.speed + 0.8)
+    fx.star2:SetAlpha(math.min(1, st.alpha * (1.3 - pulse)))
+    fx.star2:ClearAllPoints(); fx.star2:SetPoint("CENTER", pin, "CENTER", 0, 0)
+    fx.star2:SetShown(st.rings > 0)
+    if st.halo > 0 then
+        local hs = st.halo * k * (0.85 + 0.3 * pulse)
+        fx.halo:SetSize(hs, hs)
+        fx.halo:SetAlpha(math.min(1, 0.55 * near))
+        fx.halo:ClearAllPoints(); fx.halo:SetPoint("CENTER", pin, "CENTER", 0, 0)
+        fx.halo:Show()
+    else
+        fx.halo:Hide()
+    end
+    for i, r in ipairs(fx.rings) do
+        if i <= st.rings then
+            local phase = (t * 0.7 * st.speed + (i - 1) * 0.5) % 1
+            local rs = (10 + phase * 46) * k
+            r:SetSize(rs, rs)
+            r:SetAlpha((1 - phase) * 0.9)
+            r:ClearAllPoints(); r:SetPoint("CENTER", pin, "CENTER", 0, 0)
+            r:Show()
+        else
+            r:Hide()
+        end
+    end
 end
 
 local function NewHeatSet()
@@ -449,6 +543,8 @@ function Spots.RefreshMinimap()
     for i = nh + 1, #mmHeat do for k = 1, 3 do mmHeat[i][k]:Hide() end end
 
     -- plants, veins and the rest
+    local st = ns.db.settings
+    local glowOn, glowRange, glowStyle, glowAll = st.mmGlow == true, tonumber(st.mmGlowRange) or 80, st.mmGlowStyle or "strong", st.mmSparkleAll == true
     local n = 0
     for _, d in ipairs(data.dots) do
         if n >= MM_MAX_PINS then break end
@@ -472,7 +568,20 @@ function Spots.RefreshMinimap()
             pin:SetAlpha((d.dim and 0.3 or 1) * ns.MapOpacity())
             pin.tail:SetShown(d.icon ~= nil)
             pin.title, pin.sub, pin.count, pin.last, pin.lastLabel = d.title, d.sub, d.n, d.last, d.lastLabel
-            pin.node, pin.spot = d.node, d.spot
+            pin.node, pin.spot, pin.key = d.node, d.spot, d.key
+            -- close resources sparkle (the closer, the stronger); a quiet sparkle for all of them, if set
+            local dist = math.sqrt(sx * sx + sy * sy)
+            pin.fxLevel = 0
+            if d.node and not d.dim then
+                if glowOn and dist <= glowRange then
+                    pin.fxLevel = 1 + (glowRange - dist) / glowRange
+                elseif glowAll then
+                    pin.fxLevel = 0.5
+                end
+            end
+            pin.fxStyle = glowStyle
+            pin.fxPhase = (d.x * 977 + d.y * 331) % 6.28
+            pin.spx, pin.spy = sx * perYard, sy * perYard -- (where the spot is, from the middle of the minimap: for the tooltip of the game's blip)
             pin:ClearAllPoints()
             if d.icon then
                 -- plants and veins float above the spot (the game's own blip stays visible)
@@ -483,7 +592,7 @@ function Spots.RefreshMinimap()
             pin:Show()
         end
     end
-    for i = n + 1, #mmPins do mmPins[i]:Hide() end
+    for i = n + 1, #mmPins do mmPins[i]:Hide(); HideFx(mmPins[i]) end
 
     -- the line to the place the arrow leads to; beyond the edge it points the way
     local target = ns.Routes and ns.Routes.Target and ns.Routes.Target()
@@ -505,10 +614,49 @@ function Spots.RefreshMinimap()
     end
 end
 
+-- The tooltip the game shows for the blip of a plant or a vein on the minimap (the herb or mineral search of the game) is its text only,
+-- and the name in it cannot be read. So the known spot nearest to the mouse is looked for: if one is under it, its lines are added.
+local function NearestPinToMouse()
+    if not (Minimap and Minimap:IsMouseOver()) then return nil end
+    local mx, my = Minimap:GetCenter()
+    if not mx then return nil end
+    local scale = Minimap:GetEffectiveScale()
+    local cx, cy = GetCursorPosition()
+    local dx, dy = cx / scale - mx, cy / scale - my
+    local best, bestD
+    for _, pin in ipairs(mmPins) do
+        if pin:IsShown() and pin.node and pin.key and pin.spx then
+            local ddx, ddy = pin.spx - dx, pin.spy - dy
+            local d = ddx * ddx + ddy * ddy
+            if d <= 100 and (not bestD or d < bestD) then best, bestD = pin, d end
+        end
+    end
+    return best
+end
+
+if GameTooltip and GameTooltip.HookScript then
+    GameTooltip:HookScript("OnTooltipCleared", function(tt) tt.fcMinimap = nil end)
+    GameTooltip:HookScript("OnShow", function(tt)
+        if tt.fcMinimap or not (ns.db and ns.TipNodeFor) then return end
+        local owner = tt.GetOwner and tt:GetOwner()
+        if not owner or owner.key or not (owner == Minimap or (owner.GetParent and owner:GetParent() == Minimap)) then return end
+        local pin = NearestPinToMouse()
+        if not pin then return end
+        tt.fcMinimap = true
+        pcall(ns.TipNodeFor, tt, pin.key, pin.spot, true)
+        tt:Show()
+    end)
+end
+
 local mmWatcher = CreateFrame("Frame")
 local mmAcc = 0
 mmWatcher:SetScript("OnUpdate", function(_, dt)
     W.PulseMarkers(mmPins)
+    local now = GetTime()
+    for i = 1, #mmPins do
+        local pin = mmPins[i]
+        if pin.fxLevel and pin.fxLevel > 0 and pin:IsShown() then DrawFx(pin, now) elseif pin.fx then HideFx(pin) end
+    end
     mmAcc = mmAcc + dt
     if mmAcc < 0.15 then return end
     mmAcc = 0

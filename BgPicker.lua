@@ -14,7 +14,7 @@ local idxOf = { bg = 0, icon = 0 }
 local bar, test
 local target = "all"                -- which window the choices are for: "all", or one of the windows (see TARGETS)
 local TARGETS = { { "all", "All windows", 96 }, { "hud", "Kills & Loot", 96 }, { "account", "Account", 66 }, { "map", "Map", 50 },
-    { "settings", "Settings", 66 }, { "journal", "Journal", 64 }, { "ah", "Auction house", 96 } }
+    { "settings", "Settings", 66 }, { "journal", "Journal", 64 }, { "ah", "Auction house", 96 }, { "bags", "Bags", 50 } }
 local ALPHAS = { { "100%", 1 }, { "85%", 0.85 }, { "70%", 0.7 }, { "55%", 0.55 } }
 
 -- what is set for the chosen window (a layer of W.SkinOf, in ns.db.settings.skins)
@@ -140,6 +140,20 @@ local function IconCandidates()
     return out
 end
 
+-- Every atlas of the game, to look for a picture by its name (a search for "beam", "ray", "light", "pillar" ...). A click only shows the name:
+-- nothing is set for a window.
+local function AllAtlasCandidates()
+    local out = {}
+    if C_Texture and C_Texture.GetAtlasElements then
+        local ok, names = pcall(C_Texture.GetAtlasElements)
+        if ok and type(names) == "table" then
+            table.sort(names)
+            for _, n in ipairs(names) do out[#out + 1] = { kind = "atlas", value = n, label = tostring(n) } end
+        end
+    end
+    return out
+end
+
 local function ApplyTest()
     if not test then return end
     test.skinKey = Key() -- the test window shows what the chosen window gets
@@ -221,6 +235,12 @@ function Use(k)
     idx = ((k - 1) % #list) + 1
     local e = list[idx]
     ns.db.settings.frameStyle = "blizzard"
+    if tab == "all" then
+        -- (only to look at: the name is shown, nothing is set)
+        bar.text:SetText(("%d   atlas   %s"):format(idx, e.label))
+        Render()
+        return
+    end
     if tab == "bg" then
         Layer().bgTex = { [e.kind] = e.value }
     else
@@ -391,7 +411,7 @@ end
 local function SetTab(which)
     idxOf[tab] = idx
     tab = which
-    if not lists[tab] then lists[tab] = tab == "bg" and Candidates() or IconCandidates() end
+    if not lists[tab] then lists[tab] = tab == "bg" and Candidates() or (tab == "all" and AllAtlasCandidates() or IconCandidates()) end
     list = lists[tab]
     kindFilter = "all"
     Filter()
@@ -440,7 +460,7 @@ local function Build()
     end
     Btn("<", 30, function() Step(-1) end)
     Btn(">", 30, function() Step(1) end)
-    for _, def in ipairs({ { "Backgrounds", "bg", 100 }, { "Icons", "icon", 60 } }) do
+    for _, def in ipairs({ { "Backgrounds", "bg", 100 }, { "Icons", "icon", 60 }, { "All atlases", "all", 96 } }) do
         local btn = Btn(def[1], def[3], function() SetTab(def[2]) end)
         btn.tab = def[2]
         f.tabs[#f.tabs + 1] = btn

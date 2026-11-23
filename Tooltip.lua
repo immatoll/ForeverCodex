@@ -628,7 +628,7 @@ local function NodeRecord(name)
     end
 end
 
-local function NodeLines(gm)
+local function NodeLines(gm, spot)
     local lines = {}
     local kills = gm.kills or 0
     local spots, last, nearest, nearestD = 0, nil, nil, nil
@@ -644,6 +644,7 @@ local function NodeLines(gm)
             if d <= NEAR_YARDS and (not nearestD or d < nearestD) then nearest, nearestD = sp, d end
         end
     end
+    if spot then nearest = spot end -- (a place that is known: a pin of the minimap)
     if ns.TipOn("nodeVisited") then
         lines[#lines + 1] = { head = L["Resource"] }
         if nearest then
@@ -673,6 +674,20 @@ local function NodeLines(gm)
         end
     end
     return lines
+end
+
+-- The tooltip of a resource as it is in the world, for a pin of the minimap: its name, and the lines of the settings for nodes (the
+-- place is the one of the pin). Returns true when it made one (the caller shows it).
+function ns.TipNodeFor(tt, key, spot, noName)
+    local gm = ns.db and ns.db.mobs[key]
+    if not gm or gm.cat == "mob" then return false end
+    local col = ns.CAT[gm.cat] and ns.CAT[gm.cat].color or { 1, 1, 1 }
+    if not noName then tt:AddLine(gm.name or key, col[1], col[2], col[3]) end
+    if ns.TipOn("master") then
+        local ok, lines = pcall(NodeLines, gm, spot)
+        if ok then Finish(tt, lines) end
+    end
+    return true
 end
 
 local function OnObject(tt)

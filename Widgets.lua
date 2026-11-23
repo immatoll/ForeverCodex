@@ -593,6 +593,7 @@ function W.WindowMenuRows(f)
         { "mini", L["Mini map"], "Interface\\Icons\\INV_Misc_Spyglass_02", function() if ns.MapWindow then ns.MapWindow.Toggle() end end },
         { "account", L["Account"], W.ICON.account, function() if ns.AccountWindow then ns.AccountWindow.Toggle() end end },
         { "ah", L["Auction house"], W.ICON.coin, function() if ns.AuctionWindow then ns.AuctionWindow.Toggle() end end },
+        { "bags", L["Bags"], "Interface\\Icons\\INV_Misc_Bag_10", function() if ns.Manager then ns.Manager.Toggle() end end },
         { "settings", L["Settings"], W.ICON.settings, function() if ns.Settings then ns.Settings.Toggle() end end },
     }
     -- the windows of the addon, then the subwindows of one (indented under it), then what is for everything (apart)
@@ -1633,7 +1634,8 @@ function W.Console(text, title)
         edit:SetScript("OnTextChanged", Fit)
         edit:SetScript("OnEscapePressed", function(self) self:ClearFocus() end)
         edit:SetScript("OnCursorChanged", function(self, _, y, _, h)
-            -- the view follows the cursor
+            -- the view follows the cursor while typing or moving in the text (not when the text is put in or all of it is selected)
+            if not self:HasFocus() or f.holdView then return end
             local top, view = sf:GetVerticalScroll(), sf:GetHeight()
             y = -y
             if y < top then sf:SetVerticalScroll(y) elseif y + h > top + view then sf:SetVerticalScroll(y + h - view) end
@@ -1643,16 +1645,26 @@ function W.Console(text, title)
             self:SetVerticalScroll(math.max(0, math.min(maxScroll, self:GetVerticalScroll() - delta * 60)))
         end)
         sf:SetScript("OnVerticalScroll", Thumb)
-        all:SetScript("OnClick", function() edit:SetFocus(); edit:HighlightText() end)
-        f.edit, f.fit = edit, Fit
+        all:SetScript("OnClick", function()
+            f.holdView = true
+            edit:SetFocus()
+            edit:HighlightText()
+            C_Timer.After(0.2, function() f.holdView = nil end)
+        end)
+        f.edit, f.fit, f.sf = edit, Fit, sf
         console = f
     end
     console.title:SetText(title or "Console")
     console:Show()
+    -- (no focus and no selection of the text on its own: a key pressed meanwhile, for instance the one a macro is on, would be typed over
+    -- it, and the view would jump down to the cursor. "Select all" is the button for copying.)
+    console.edit:ClearFocus()
+    console.holdView = true
     console.edit:SetText(text or "")
+    console.edit:SetCursorPosition(0)
     console.fit()
-    console.edit:SetFocus()
-    console.edit:HighlightText()
+    console.sf:SetVerticalScroll(0)
+    C_Timer.After(0.2, function() console.holdView = nil end)
 end
 
 -- A description of a frame or texture of the game (atlas or file, size, colour, coordinates, places, child frames), as text.

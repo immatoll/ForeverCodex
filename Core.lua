@@ -758,8 +758,29 @@ function ns.OnFind()
     if ns.db.settings.autoOpenSession ~= false and ns.HUD then ns.HUD.Show() end
 end
 
+-- Inside dungeons and raids, and in a group, the game hides the names of creatures from addons: the loot could only be booked under
+-- "Unknown". Two settings (both on unless switched off) keep it from being recorded there; a note in the chat says so once.
+local pausedNote
+local function RecordingPaused()
+    local st = ns.db.settings
+    local why
+    if st.pauseInstances ~= false then
+        local inside, kind = IsInInstance()
+        if inside and (kind == "party" or kind == "raid" or kind == "scenario") then why = L["in a dungeon or raid"] end
+    end
+    if not why and st.pauseGroup ~= false and IsInGroup and IsInGroup() then why = L["in a group"] end
+    if not why then pausedNote = nil return false end
+    if pausedNote ~= why then
+        pausedNote = why
+        print("|cffffd100ForeverCompanion:|r " .. (L["Loot is not recorded %s: the game hides the names of creatures there. You can change this in the settings (Kills & Loot)."]):format(why))
+    end
+    return true
+end
+ns.RecordingPaused = RecordingPaused
+
 local function RecordMoney(cat, name, copper, guid)
     if not copper or copper <= 0 then return end
+    if RecordingPaused() then return end
     local key = SourceKey(cat, name)
     local gm, sm = GetSource(key, cat, name), GetSessionSource(key)
     CountSource(gm, sm, cat, key, guid)
@@ -789,6 +810,7 @@ end
 local function RecordLoot(cat, name, link, qty, guid)
     local id, _, _, _, _, classID = GetInstant(link)
     if not id then return end
+    if RecordingPaused() then return end
     local quality = QualityOf(link)
     local key = SourceKey(cat, name)
 
@@ -1282,6 +1304,232 @@ function ns.ResetAll()
     ns.NewSession()
 end
 
+-- /fc probe: what the client lets the addon read right now (in a dungeon, in a group, ...): units, the tooltip and the loot window. The
+-- answer is shown in a window that can be copied. Meant for finding out why names are "unknown".
+function ns.Probe()
+    local out = {}
+    local function P(...)
+        local t = {}
+        for i = 1, select("#", ...) do t[i] = tostring((select(i, ...))) end
+        out[#out + 1] = table.concat(t, " ")
+    end
+    -- a value as text: secret, nil, or what it is
+    local function S(v)
+        if v == nil then return "nil" end
+        if issecretvalue and issecretvalue(v) then return "SECRET" end
+        local ok, t = pcall(tostring, v)
+        return ok and t or "unreadable"
+    end
+    local function Call(fn, ...)
+        local ok, a, b, c2 = pcall(fn, ...)
+        if not ok then return "ERROR" end
+        return S(a), S(b), S(c2)
+    end
+    P("issecretvalue:", type(issecretvalue), " build:", S(select(4, GetBuildInfo())))
+    local inside, kind = IsInInstance()
+    P("instance:", S(inside), S(kind), " zone:", S(GetZoneText()), " group:", S(IsInGroup and IsInGroup()), " raid:", S(IsInRaid and IsInRaid()))
+    P("paused by the settings:", S(ns.db.settings.pauseInstances ~= false), S(ns.db.settings.pauseGroup ~= false))
+    for _, unit in ipairs({ "target", "mouseover", "softenemy", "softinteract", "focus" }) do
+        local ok, exists = pcall(UnitExists, unit)
+        if ok and exists then
+            P("--", unit)
+            P("  name:", Call(UnitName, unit))
+            P("  guid:", Call(UnitGUID, unit))
+            P("  player:", Call(UnitIsPlayer, unit), " dead:", Call(UnitIsDead, unit), " level:", Call(UnitLevel, unit), " class:", Call(UnitClassification, unit))
+            P("  type:", Call(UnitCreatureType, unit))
+        else
+            P("--", unit, "(none)")
+        end
+    end
+    -- the data of the tooltip of the unit under the mouse, and of the target
+    for _, unit in ipairs({ "mouseover", "target" }) do
+        if C_TooltipInfo and C_TooltipInfo.GetUnit then
+            local ok, data = pcall(C_TooltipInfo.GetUnit, unit)
+            if ok and data then
+                local first = data.lines and data.lines[1]
+                P("tooltip data", unit, ": lines", S(data.lines and #data.lines), " first:", S(first and first.leftText), " guid:", S(data.guid))
+            else
+                P("tooltip data", unit, ": none")
+            end
+        end
+    end
+    local line = GameTooltip and GameTooltip:IsShown() and _G.GameTooltipTextLeft1
+    P("tooltip line 1:", line and S(line:GetText()) or "(tooltip not shown)")
+    local slots = GetNumLootItems and GetNumLootItems() or 0
+    P("loot window slots:", slots)
+    for slot = 1, slots do
+        local okSrc, sources = pcall(function() return { GetLootSourceInfo(slot) } end)
+        local src = {}
+        if okSrc then for i = 1, #sources do src[#src + 1] = S(sources[i]) end end
+        P("  slot", slot, "type:", Call(GetLootSlotType, slot), "link:", Call(GetLootSlotLink, slot))
+        P("    info:", Call(GetLootSlotInfo, slot))
+        P("    sources:", okSrc and table.concat(src, ", ") or "ERROR")
+        -- can the creature be named from its guid alone? (a tooltip made for the guid, not for a unit)
+        if okSrc then
+            for i = 1, #sources, 2 do
+                local guid = Readable(sources[i])
+                if guid then
+                    local npc = guid:match("^%a+%-%d+%-%d+%-%d+%-%d+%-(%d+)%-")
+                    P("    guid", guid, "npc id:", npc or "?")
+                    if C_TooltipInfo and C_TooltipInfo.GetHyperlink then
+                        local ok, data = pcall(C_TooltipInfo.GetHyperlink, "unit:" .. guid)
+                        if ok and data then
+                            P("    hyperlink data: lines", S(data.lines and #data.lines), " first:", S(data.lines and data.lines[1] and data.lines[1].leftText))
+                        else
+                            P("    hyperlink data:", ok and "none" or "ERROR")
+                        end
+                    end
+                    local tip = _G.ForeverCompanionProbeTip or CreateFrame("GameTooltip", "ForeverCompanionProbeTip", UIParent, "GameTooltipTemplate")
+                    tip:SetOwner(UIParent, "ANCHOR_NONE")
+                    local ok2 = pcall(tip.SetHyperlink, tip, "unit:" .. guid)
+                    local l1 = _G.ForeverCompanionProbeTipTextLeft1
+                    P("    tooltip by guid:", ok2 and "ok" or "ERROR", " line 1:", l1 and S(l1:GetText()) or "nil")
+                    tip:Hide()
+                end
+            end
+        end
+    end
+    P("names cached:", nameCount)
+    -- a beacon in the world: does this client have the game's waypoint (user waypoint, super tracking)?
+    P("-- waypoint")
+    P("C_Map.SetUserWaypoint:", type(C_Map and C_Map.SetUserWaypoint), " CanSetUserWaypointOnMap:", type(C_Map and C_Map.CanSetUserWaypointOnMap),
+        " C_SuperTrack:", type(C_SuperTrack), " SetSuperTrackedUserWaypoint:", type(C_SuperTrack and C_SuperTrack.SetSuperTrackedUserWaypoint))
+    local here = ns.PlayerPos()
+    if here and C_Map and C_Map.CanSetUserWaypointOnMap then
+        local ok, can = pcall(C_Map.CanSetUserWaypointOnMap, here)
+        P("can set a waypoint in this zone:", ok and S(can) or "ERROR")
+    end
+    -- talents: what this client gives for the talent trees (for drawing them as the game does)
+    P("-- talents")
+    P("functions:", "GetNumTalentTabs", type(GetNumTalentTabs), " GetTalentTabInfo", type(GetTalentTabInfo), " GetNumTalents", type(GetNumTalents),
+        " GetTalentInfo", type(GetTalentInfo), " GetTalentPrereqs", type(GetTalentPrereqs), " GetUnspentTalentPoints", type(GetUnspentTalentPoints),
+        " C_SpecializationInfo", type(C_SpecializationInfo), " C_ClassTalents", type(C_ClassTalents))
+    if GetNumTalentTabs and GetTalentTabInfo then
+        local okN, nTabs = pcall(GetNumTalentTabs)
+        P("tabs:", okN and S(nTabs) or "ERROR")
+        for tab = 1, (okN and tonumber(nTabs) or 0) do
+            P("tab", tab, "info:", Call(GetTalentTabInfo, tab))
+            local okI, a1, a2, a3, a4, a5, a6 = pcall(GetTalentTabInfo, tab)
+            if okI then P("  all returns:", S(a1), S(a2), S(a3), S(a4), S(a5), S(a6)) end
+            local okT, num = pcall(GetNumTalents, tab)
+            P("  talents in the tree:", okT and S(num) or "ERROR")
+            if okT and tonumber(num) and GetTalentInfo then
+                for i = 1, math.min(3, tonumber(num)) do
+                    local ok2, r1, r2, r3, r4, r5, r6, r7, r8, r9 = pcall(GetTalentInfo, tab, i)
+                    if ok2 then
+                        P("  talent", i, ":", S(r1), S(r2), S(r3), S(r4), S(r5), S(r6), S(r7), S(r8), S(r9))
+                    else
+                        P("  talent", i, ": ERROR")
+                    end
+                    if GetTalentPrereqs then
+                        local okP, p1, p2, p3 = pcall(GetTalentPrereqs, tab, i)
+                        P("    prereqs:", okP and (S(p1) .. " " .. S(p2) .. " " .. S(p3)) or "ERROR")
+                    end
+                end
+            end
+            if tab >= 1 then break end -- (one tree is enough to see the shape)
+        end
+    end
+    -- this client has no classic talent functions: the newer talent system (C_Traits). What does it give?
+    do
+        local function Names(t)
+            local n = {}
+            for k, v in pairs(t or {}) do if type(v) == "function" then n[#n + 1] = k end end
+            table.sort(n)
+            return table.concat(n, " ")
+        end
+        P("C_SpecializationInfo:", Names(C_SpecializationInfo))
+        P("C_ClassTalents:", Names(C_ClassTalents))
+        P("C_Traits:", type(C_Traits), Names(C_Traits))
+        local cfg = C_ClassTalents and C_ClassTalents.GetActiveConfigID and select(2, pcall(C_ClassTalents.GetActiveConfigID))
+        P("active config id:", S(cfg))
+        local function Dump(label, t)
+            if type(t) ~= "table" then P("  ", label, ":", S(t)) return end
+            local parts = {}
+            for k, v in pairs(t) do
+                local kind = type(v)
+                if kind == "table" then parts[#parts + 1] = tostring(k) .. "=table(" .. #v .. ")"
+                elseif kind ~= "function" then parts[#parts + 1] = tostring(k) .. "=" .. S(v) end
+            end
+            table.sort(parts)
+            P("  ", label, ":", table.concat(parts, " "))
+        end
+        if cfg and C_Traits and C_Traits.GetConfigInfo then
+            local okC, info = pcall(C_Traits.GetConfigInfo, cfg)
+            Dump("config", okC and info or nil)
+            local trees = okC and type(info) == "table" and info.treeIDs or {}
+            for _, treeID in ipairs(trees) do
+                local okT, nodes = pcall(C_Traits.GetTreeNodes, treeID)
+                P(" tree", S(treeID), "nodes:", okT and S(type(nodes) == "table" and #nodes) or "ERROR")
+                if C_Traits.GetTreeInfo then
+                    local okI, tinfo = pcall(C_Traits.GetTreeInfo, cfg, treeID)
+                    Dump("tree info", okI and tinfo or nil)
+                end
+                if okT and type(nodes) == "table" then
+                    for i = 1, math.min(3, #nodes) do
+                        local okN, node = pcall(C_Traits.GetNodeInfo, cfg, nodes[i])
+                        Dump("node " .. S(nodes[i]), okN and node or nil)
+                        local entryID = okN and type(node) == "table" and node.entryIDs and node.entryIDs[1]
+                        if entryID and C_Traits.GetEntryInfo then
+                            local okE, entry = pcall(C_Traits.GetEntryInfo, cfg, entryID)
+                            Dump("entry " .. S(entryID), okE and entry or nil)
+                            local defID = okE and type(entry) == "table" and entry.definitionID
+                            if defID and C_Traits.GetDefinitionInfo then
+                                local okD, def = pcall(C_Traits.GetDefinitionInfo, defID)
+                                Dump("definition " .. S(defID), okD and def or nil)
+                            end
+                        end
+                        if okN and type(node) == "table" and type(node.visibleEdges) == "table" and node.visibleEdges[1] then
+                            Dump("first edge", node.visibleEdges[1])
+                        end
+                    end
+                end
+            end
+        end
+    end
+    P("texture tests:")
+    for _, path in ipairs({ "Interface\\TalentFrame\\UI-TalentArrows", "Interface\\TalentFrame\\UI-TalentBranches",
+        "Interface\\TalentFrame\\TalentFrame-Parchment-TopLeft" }) do
+        local fileId = GetFileIDFromPath and select(2, pcall(GetFileIDFromPath, path))
+        P("  ", path, " file id:", S(fileId))
+    end
+    -- is the waypoint the one that is followed, and what draws it in the world?
+    local function Q(fn, ...) if type(fn) ~= "function" then return "no function" end local ok, v = pcall(fn, ...) return ok and S(v) or "ERROR" end
+    do
+        local okU, uy, ux, uz = pcall(UnitPosition, "player")
+        P("UnitPosition (y, x, z):", okU and S(uy) or "ERROR", okU and S(ux) or "", okU and S(uz) or "")
+    end
+    P("has user waypoint:", Q(C_Map and C_Map.HasUserWaypoint))
+    P("super tracking the waypoint:", Q(C_SuperTrack and C_SuperTrack.IsSuperTrackingUserWaypoint))
+    P("super tracked type:", Q(C_SuperTrack and C_SuperTrack.GetHighestPrioritySuperTrackingType))
+    P("C_Navigation:", type(C_Navigation), " SuperTrackedFrame:", type(_G.SuperTrackedFrame),
+        " shown:", _G.SuperTrackedFrame and S(_G.SuperTrackedFrame:IsShown()) or "-")
+    if type(C_Navigation) == "table" then
+        for _, fn in ipairs({ "GetDistance", "GetTargetState", "GetFrame", "WasClampedToScreen", "HasValidScreenPosition" }) do
+            P("  C_Navigation." .. fn .. ":", Q(C_Navigation[fn]))
+        end
+    end
+    -- the game's own settings about sparkles, outlines and highlights of objects
+    P("-- settings of the game (sparkle, glow, outline, highlight, soft target, interact)")
+    local cmds = (C_Console and C_Console.GetAllCommands and C_Console.GetAllCommands()) or (ConsoleGetAllCommands and ConsoleGetAllCommands()) or {}
+    local found = 0
+    for _, cmd in ipairs(cmds) do
+        local name = cmd.command or cmd.name
+        if type(name) == "string" and found < 60 then
+            local low = name:lower()
+            if low:find("beam", 1, true) or low:find("waypoint", 1, true) or low:find("supertrack", 1, true) or low:find("navigation", 1, true)
+                or low:find("sparkle", 1, true) or low:find("glow", 1, true) or low:find("outline", 1, true) or low:find("highlight", 1, true)
+                or low:find("softtarget", 1, true) or low:find("interact", 1, true) then
+                found = found + 1
+                local okv, value = pcall(GetCVar, name)
+                P("  ", name, "=", okv and S(value) or "?")
+            end
+        end
+    end
+    if #cmds == 0 then P("  (the list of settings cannot be read on this client)") end
+    ns.W.Console(table.concat(out, "\n"), "Companion probe (copy and send)")
+end
+
 SLASH_FOREVERCOMPANION1 = "/fc"
 SLASH_FOREVERCOMPANION2 = "/companion"
 SLASH_FOREVERCOMPANION5 = "/codex"
@@ -1318,6 +1566,37 @@ SlashCmdList.FOREVERCOMPANION = function(msg)
     elseif cmd == "debug" then
         ns.db.debug = not ns.db.debug
         print("|cffffd100ForeverCompanion:|r " .. (ns.db.debug and "debug on: gather something and read the lines" or "debug off"))
+    elseif cmd == "probe" then
+        ns.Probe()
+    elseif cmd == "atlas" then
+        -- /fc atlas word word ...: the names of the game's atlases that have all the words (to find pictures by name)
+        local words = {}
+        for w in (msg or ""):lower():gsub("^%s*atlas%s*", ""):gmatch("%S+") do words[#words + 1] = w end
+        local out, shown = {}, 0
+        if C_Texture and C_Texture.GetAtlasElements and #words > 0 then
+            local ok, names = pcall(C_Texture.GetAtlasElements)
+            if ok and type(names) == "table" then
+                table.sort(names)
+                for _, n in ipairs(names) do
+                    local low = tostring(n):lower()
+                    local all = true
+                    for _, w in ipairs(words) do if not low:find(w, 1, true) then all = false break end end
+                    if all then
+                        shown = shown + 1
+                        if shown <= 400 then
+                            local info = C_Texture.GetAtlasInfo and C_Texture.GetAtlasInfo(n)
+                            out[#out + 1] = tostring(n) .. (info and ("  " .. tostring(info.width) .. "x" .. tostring(info.height)) or "")
+                        end
+                    end
+                end
+            end
+        end
+        local head = ("%d atlases with: %s"):format(shown, table.concat(words, " "))
+        if shown > 400 then head = head .. "   (the first 400 are shown: add a word)" end
+        if #words == 0 then head = "Use: /fc atlas word word ... (all words must be in the name)" end
+        ns.W.Console(head .. "\n" .. table.concat(out, "\n"), "Atlas search (copy and send)")
+    elseif cmd == "glow" then
+        if ns.WorldGlow then ns.W.Console(ns.WorldGlow.Report(), "Companion glow (copy and send)") end
     elseif cmd == "accdebug" then
         ns.Acc.Debug()
     elseif cmd == "account" or cmd == "alts" then

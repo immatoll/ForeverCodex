@@ -544,6 +544,38 @@ do
                 if on then ns.MapWindow.Show() else ns.MapWindow.Hide() end
             end
         end, L["A small map that follows you, with the filter of the loot map."])
+    Heading(p, L["In the world"])
+    Toggle(p, L["Sparkle at herbs and ore"], "Interface\\Icons\\INV_Misc_Gem_Variety_02",
+        function() return ns.db.settings.worldGlow == true end,
+        function(on)
+            ns.db.settings.worldGlow = on
+            local ok, err = true, nil
+            if ns.WorldGlow then ok, err = pcall(ns.WorldGlow.Refresh, on) end
+            Say(L["Sparkle at herbs and ore"] .. ": " .. (on and L["on"] or L["off"]) .. (ok and "" or (" - " .. tostring(err))))
+        end,
+        L["Sparkles over the plant or vein near you. It uses the interaction target of the game (the object nearest in front of you, up to about 15 yards, the limit of the game). It needs the game's option \"Enable Interact Key\" (and the interaction icons on objects): switching this on sets both for you, switching it off puts everything back. Do not use it together with another addon that does the same."])
+    local glowOn = function() return ns.db.settings.worldGlow == true end
+    Toggle(p, L["Only for my professions"], "Interface\\Icons\\Trade_Herbalism",
+        function() return ns.db.settings.worldGlowOnlyMine ~= false end,
+        function(on) ns.db.settings.worldGlowOnlyMine = on; if ns.WorldGlow then ns.WorldGlow.Refresh() end end,
+        L["Herbs only sparkle with Herbalism, veins with Mining, animals with Skinning."], true)
+    Toggle(p, L["Skinnable animals too"], "Interface\\Icons\\INV_Misc_Pelt_Wolf_01",
+        function() return ns.db.settings.worldGlowSkin ~= false end,
+        function(on) ns.db.settings.worldGlowSkin = on; if ns.WorldGlow then ns.WorldGlow.Refresh() end end,
+        L["Dead animals that you can skin sparkle too, until they are skinned (with Skinning)."], true)
+    Toggle(p, L["Hide the game's nameplate"], "Interface\\Icons\\INV_Misc_Spyglass_03",
+        function() return ns.db.settings.worldGlowHidePlate ~= false end,
+        function(on)
+            ns.db.settings.worldGlowHidePlate = on
+            if ns.WorldGlow then ns.WorldGlow.Refresh() end
+        end,
+        L["The game shows a nameplate (name, health bar) over the object that sparkles. With this on it is made see-through; the sparkle stays."], true)
+    Choice(p, L["Height"], { { "25", L["high"] }, { "45", L["normal"] }, { "65", L["low"] }, { "90", L["lower"] } },
+        function() return tostring(ns.db.settings.worldGlowDrop or 45) end,
+        function(v) ns.db.settings.worldGlowDrop = tonumber(v) or 45; if ns.WorldGlow then ns.WorldGlow.Refresh() end end,
+        L["Where the effect sits against the game's nameplate of the object: higher or lower on the plant."], "45")
+    for k = 0, 3 do p.rows[#p.rows - k].enabled = glowOn end -- (the four options above only matter while the sparkle is on)
+    Heading(p, L["Map"])
     Toggle(p, L["Show the whole map"], "Interface\\Icons\\INV_Misc_Map_01",
         function() return ns.db.settings.mapReveal ~= false end,
         function(on) ns.db.settings.mapReveal = on end,
@@ -569,6 +601,15 @@ do
         function() return ns.db.settings.autoOpenSession ~= false end,
         function(on) ns.db.settings.autoOpenSession = on end,
         L["The window opens when you loot or gather something, if it is closed."], true)
+    Heading(p, L["Recording"])
+    Toggle(p, L["Not in dungeons and raids"], "Interface\\Icons\\INV_Misc_Key_03",
+        function() return ns.db.settings.pauseInstances ~= false end,
+        function(on) ns.db.settings.pauseInstances = on end,
+        L["Inside dungeons and raids the game hides the names of creatures from addons, so their loot cannot be assigned. With this on, nothing is recorded there."], true)
+    Toggle(p, L["Not while in a group"], "Interface\\Icons\\INV_Misc_GroupLooking",
+        function() return ns.db.settings.pauseGroup ~= false end,
+        function(on) ns.db.settings.pauseGroup = on end,
+        L["In a group the game may hide the names of creatures too. With this on, nothing is recorded while you are grouped."], true)
     Heading(p, L["Session"])
     Toggle(p, L["Keep session after reload"], W.ICON.session,
         function() return ns.db.settings.keepSession end,
@@ -764,6 +805,147 @@ do
     end, { alpha = function() return (ns.AH.IsOpen() and not ns.AH.Scanning()) and 1 or 0.5 end })
 end
 
+-- Bags ---------------------------------------------------------------------------------------------
+-- the rules of the items: one line each, with a button to take it away
+local function RuleListRow(p)
+    local fr = CreateFrame("Frame", nil, p.content)
+    fr:SetSize(CW, 24)
+    fr.lines = {}
+    fr.height = 24
+    fr.none = fr:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    fr.none:SetPoint("TOPLEFT", 0, -4)
+    fr.none:SetTextColor(unpack(C.muted))
+    local function Line(i)
+        local ln = fr.lines[i]
+        if ln then return ln end
+        ln = CreateFrame("Frame", nil, fr)
+        ln:SetSize(CW, 24)
+        ln.icon = ln:CreateTexture(nil, "ARTWORK")
+        ln.icon:SetSize(20, 20)
+        ln.icon:SetPoint("LEFT", 0, 0)
+        ln.icon:SetTexCoord(0.07, 0.93, 0.07, 0.93)
+        ln.name = ln:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+        ln.name:SetPoint("LEFT", ln.icon, "RIGHT", 8, 0)
+        ln.name:SetWidth(CW - 250)
+        ln.name:SetJustifyH("LEFT")
+        ln.name:SetWordWrap(false)
+        ln.kind = ln:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+        ln.kind:SetPoint("LEFT", ln.name, "RIGHT", 8, 0)
+        ln.kind:SetWidth(170)
+        ln.kind:SetJustifyH("LEFT")
+        ln.kind:SetWordWrap(false)
+        ln.del = W.NewButton(ln, "×", 22, 20, "GameFontNormal")
+        ln.del:SetPoint("RIGHT", 0, 0)
+        ln.del:SetScript("OnClick", function() if ln.id and ns.Manager then ns.Manager.SetRule(ln.id, nil) end end)
+        fr.lines[i] = ln
+        return ln
+    end
+    return AddRow(p, { frame = fr, h = 24, hfn = function() return fr.height end, noSearch = true, label = L["Rules"],
+        update = function()
+            local list = ns.Manager and ns.Manager.RuleList() or {}
+            local shown = math.min(#list, 40)
+            for i = 1, shown do
+                local e = list[i]
+                local ln = Line(i)
+                ln:ClearAllPoints()
+                ln:SetPoint("TOPLEFT", fr, "TOPLEFT", 0, -(i - 1) * 24)
+                ln.id = e.id
+                ln.icon:SetTexture(e.icon or "Interface\\Icons\\INV_Misc_QuestionMark")
+                ln.name:SetText(e.name)
+                local k = ns.Manager.KIND[e.kind]
+                ln.kind:SetText((k and k.label or e.kind) .. (e.target and (": " .. e.target) or ""))
+                if k then ln.kind:SetTextColor(k.color[1], k.color[2], k.color[3]) end
+                ln:Show()
+            end
+            for i = shown + 1, #fr.lines do fr.lines[i]:Hide() end
+            if #list == 0 then fr.none:SetText(L["No rules yet. Click an item in the bags manager to set one."]) else fr.none:SetText("") end
+            if #list > shown then fr.none:SetText((L["... and %d more"]):format(#list - shown)); fr.none:ClearAllPoints(); fr.none:SetPoint("TOPLEFT", 0, -(shown * 24) - 4) end
+            fr.height = math.max(24, shown * 24 + (#list > shown and 22 or 0))
+            fr:SetHeight(fr.height)
+        end })
+end
+
+local function CatListRow(p)
+    local fr = CreateFrame("Frame", nil, p.content)
+    fr:SetSize(CW, 24)
+    fr.lines = {}
+    local function Line(i, cat)
+        local ln = fr.lines[i]
+        if ln then return ln end
+        ln = CreateFrame("Frame", nil, fr)
+        ln:SetSize(CW, 26)
+        ln:SetPoint("TOPLEFT", fr, "TOPLEFT", 0, -(i - 1) * 26)
+        ln.icon = ln:CreateTexture(nil, "ARTWORK")
+        ln.icon:SetSize(20, 20)
+        ln.icon:SetPoint("LEFT", 0, 0)
+        ln.icon:SetTexCoord(0.07, 0.93, 0.07, 0.93)
+        ln.icon:SetTexture(cat.icon)
+        ln.name = ln:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+        ln.name:SetPoint("LEFT", ln.icon, "RIGHT", 8, 0)
+        ln.name:SetWidth(200)
+        ln.name:SetJustifyH("LEFT")
+        ln.name:SetText(cat.label)
+        ln.rule = ln:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+        ln.rule:SetPoint("LEFT", ln.name, "RIGHT", 8, 0)
+        ln.rule:SetWidth(CW - 330)
+        ln.rule:SetJustifyH("LEFT")
+        ln.rule:SetWordWrap(false)
+        ln.btn = W.NewButton(ln, L["Change"], 90, 22)
+        ln.btn:SetPoint("RIGHT", 0, 0)
+        ln.btn:SetScript("OnClick", function(self) if ns.Manager then ns.Manager.OpenCatMenu(self, cat) end end)
+        fr.lines[i] = ln
+        return ln
+    end
+    return AddRow(p, { frame = fr, h = 26, hfn = function() return #ns.Manager.CATS * 26 end, noSearch = true, label = L["Kinds of items"],
+        update = function()
+            for i, cat in ipairs(ns.Manager.CATS) do
+                local ln = Line(i, cat)
+                local r = ns.Manager.CatRule(cat.id)
+                local k = r and ns.Manager.KIND[r.kind]
+                if k then
+                    ln.rule:SetText(k.label .. ((r.kind == "mail" and r.target) and (": " .. r.target) or ""))
+                    ln.rule:SetTextColor(k.color[1], k.color[2], k.color[3])
+                else
+                    local who = ns.Manager.Suggest(cat)
+                    ln.rule:SetText(who and ("– (" .. L["Suggestion"] .. ": " .. who .. ")") or "–")
+                    ln.rule:SetTextColor(0.55, 0.55, 0.55)
+                end
+            end
+            fr:SetHeight(#ns.Manager.CATS * 26)
+        end })
+end
+
+do
+    local p = NewPage("bags", L["Bags"], { cols = 2 })
+    Heading(p, L["Bags manager"])
+    Toggle(p, L["Open by itself"], "Interface\\Icons\\INV_Misc_Bag_10",
+        function() return ns.Manager and ns.Manager.AutoOpen() end,
+        function(on) ns.db.settings.mgrAutoOpen = on end,
+        L["The bags window opens with a merchant, the mailbox and the bank, and closes with them."], true)
+    Toggle(p, L["Sell junk automatically"], "Interface\\Icons\\INV_Misc_Coin_01",
+        function() return ns.Manager and ns.Manager.JunkAuto() end,
+        function(on) ns.db.settings.mgrSellJunk = on end,
+        L["Gray items are sold when a merchant opens (not those you keep, mail or store)."], true)
+    Choice(p, L["Worth a look at the auction house from"], { { "10", "10 %" }, { "25", "25 %" }, { "50", "50 %" }, { "100", "100 %" } },
+        function() return tostring(ns.Manager and ns.Manager.AhGain() or 25) end,
+        function(v) ns.db.settings.mgrAhGain = tonumber(v) or 25 end,
+        L["When the auction house pays this much more than a vendor (after its fee), the item is marked for the auction house, not for the vendor."], "25")
+    Choice(p, L["Sell without AH: up to"], { { "0", L["gray"] }, { "1", L["white"] }, { "2", L["green"] } },
+        function() return tostring(ns.Manager and ns.Manager.SellLimit() or 1) end,
+        function(v) ns.db.settings.mgrSellLimit = tonumber(v) or 1 end,
+        L["The button at a vendor sells everything up to this quality that the auction house would not pay more for."], "1")
+    Button(p, L["Open the bags manager"], function() if ns.Manager then ns.Manager.Show() end end)
+    Heading(p, L["Kinds of items"])
+    Note(p, L["A rule for a kind of item: cloth to the tailor, leather to the leatherworker, green gear to the enchanter. A rule for one item wins."])
+    CatListRow(p)
+    Button(p, L["All suggestions"], function() if ns.Manager then ns.Manager.ApplySuggestions() end end, nil,
+        L["Takes over the suggestions: each kind that has no rule goes to the character with the profession that uses it."])
+    Heading(p, L["Single items"])
+    Note(p, L["What to do with an item, set in the bags manager: keep it, always mail it to a character, or store it in the bank."])
+    RuleListRow(p)
+    Button(p, L["Remove all rules"], function() if ns.Manager then ns.Manager.ClearRules() end end, { confirm = true })
+end
+
 -- Data -------------------------------------------------------------------------------------------
 do
     local p = NewPage("account", L["Account"], { cols = 2 })
@@ -797,6 +979,7 @@ do
     Reset(L["Reset settings window"], function() S.ResetWindow() end)
     Reset(L["Reset account window"], function() ns.AccountWindow.ResetWindow() end)
     Reset(L["Reset auction window"], function() if ns.AuctionWindow then ns.AuctionWindow.ResetWindow() end end)
+    Reset(L["Reset bags window"], function() if ns.Manager then ns.Manager.ResetWindow() end end)
     Reset(L["Reset navigation arrow"], function() if ns.Routes then ns.Routes.ResetNav() end end)
     Reset(L["Reset minimap button"], ResetMinimapButton)
     Reset(L["Reset all windows"], function()
@@ -806,6 +989,7 @@ do
         S.ResetWindow()
         ns.AccountWindow.ResetWindow()
         if ns.AuctionWindow then ns.AuctionWindow.ResetWindow() end
+        if ns.Manager then ns.Manager.ResetWindow() end
         if ns.Routes then ns.Routes.ResetNav() end
         ResetMinimapButton()
     end, true)
@@ -833,6 +1017,7 @@ local GROUPS = {
     { label = L["Loot"], pages = { "sources", "session", "value", "notify" } },
     { label = L["Tooltips"], pages = { "tipgen", "tipitem", "tipmob", "tipnode" } },
     { label = L["Auction house"], pages = { "ah" } },
+    { label = L["Inventory"], pages = { "bags" } },
     { label = L["Data"], pages = { "account", "windows", "data" } },
 }
 local navButtons, groupHeads = {}, {}
@@ -920,6 +1105,19 @@ local function Matches(row, words)
     return true
 end
 
+-- an option that only makes sense while another one is on (row.enabled): dimmed and not to be clicked while it is off
+local function SetRowEnabled(row, on)
+    local fr = row.frame
+    fr:SetAlpha(on and 1 or 0.4)
+    local function Each(f)
+        if f.Enable and f.Disable then
+            if on then f:Enable() else f:Disable() end
+        end
+    end
+    Each(fr)
+    for _, child in ipairs({ fr:GetChildren() }) do Each(child) end
+end
+
 function S.Refresh()
     local p = pages[current]
     if not p then return end
@@ -938,6 +1136,7 @@ function S.Refresh()
     resetBtn:SetShown(p.canReset and true or false)
     for _, row in ipairs(p.rows) do
         if row.update then row.update() end
+        if row.enabled then SetRowEnabled(row, row.enabled()) end
     end
     UpdatePreview(p)
     Layout(p)

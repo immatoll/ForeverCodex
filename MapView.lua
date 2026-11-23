@@ -479,7 +479,7 @@ function ns.MapData(mapID, scope, query, noHeat)
         end
         if not asHeat or query then
             local sword = asHeat and query ~= nil
-            dots[#dots + 1] = { x = x, y = y, color = ns.CAT[cat].color, icon = sword and ns.CAT.mob.icon or s.icon, title = s.name,
+            dots[#dots + 1] = { key = key, x = x, y = y, color = ns.CAT[cat].color, icon = sword and ns.CAT.mob.icon or s.icon, title = s.name,
                 sub = ns.CAT[cat].label, n = n, spot = spot, zone = gm.zone, last = last,
                 lastLabel = cat == "mob" and L["Last kill here"] or L["Last used"], dim = false, node = cat ~= "mob",
                 hot = query ~= nil, solo = cat == "mob" and not s.icon and not sword, noCount = sword or nil }

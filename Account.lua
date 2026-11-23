@@ -297,10 +297,12 @@ local function SlotItem(bag, slot)
     end
 end
 
-local function ScanContainers(bags)
+local function ScanContainers(bags, sizeFrom, sizeTo)
     local items, bound, total, free = {}, {}, 0, 0
-    for _, bag in ipairs(bags) do
+    local sizes = {} -- how many slots each bag has, in the order of the list (from sizeFrom on: the first ones are not bags that can be changed)
+    for i, bag in ipairs(bags) do
         local n = NumSlots(bag)
+        if i >= (sizeFrom or 1) and i <= (sizeTo or #bags) then sizes[#sizes + 1] = n end
         total = total + n
         for slot = 1, n do
             local id, count, link, isBound = SlotItem(bag, slot)
@@ -313,7 +315,15 @@ local function ScanContainers(bags)
             end
         end
     end
-    return { items = items, bound = bound, slots = total, free = free }
+    return { items = items, bound = bound, slots = total, free = free, sizes = sizes }
+end
+
+-- The reagent bag (its own slot beside the four bags, where the client has one) counts as a bag: its number is the one after the bags, and the
+-- bank bags come after it.
+local function ReagentBagId()
+    local id = Enum and Enum.BagIndex and Enum.BagIndex.ReagentBag
+    if id then return id end
+    if (NUM_REAGENTBAG_SLOTS or 0) > 0 then return (NUM_BAG_SLOTS or 4) + 1 end
 end
 
 local function ScanBags()
@@ -321,7 +331,9 @@ local function ScanBags()
     if not rec then return end
     local list = {}
     for bag = 0, (NUM_BAG_SLOTS or 4) do list[#list + 1] = bag end
-    rec.bags = ScanContainers(list)
+    local reagent = ReagentBagId()
+    if reagent then list[#list + 1] = reagent end
+    rec.bags = ScanContainers(list, 2)
     Stamp(rec, "bags")
 end
 
@@ -330,10 +342,10 @@ local function ScanBank()
     local rec = Acc.Me()
     if not rec or not bankOpen then return end
     local list = { BANK_CONTAINER or -1 }
-    local first = (NUM_BAG_SLOTS or 4) + 1
+    local first = (ReagentBagId() or (NUM_BAG_SLOTS or 4)) + 1 -- (after the bags, and the reagent bag if there is one)
     for bag = first, first + (NUM_BANKBAGSLOTS or 7) - 1 do list[#list + 1] = bag end
     if REAGENTBANK_CONTAINER then list[#list + 1] = REAGENTBANK_CONTAINER end
-    rec.bank = ScanContainers(list)
+    rec.bank = ScanContainers(list, 2, #list - ((REAGENTBANK_CONTAINER and 1) or 0)) -- (not the bank itself, nor the reagent bank: their size is fixed)
     Stamp(rec, "bank")
 end
 
@@ -748,9 +760,87 @@ Acc.HINT = {
 local pending = {}
 local function Queue(kind) pending[kind] = true end
 
+-- talents -----------------------------------------------------------------------------------
+-- This client has no classic talent functions; its talents are a trait tree (C_Traits). Every node of the tree is kept: where it sits
+-- (the game's own coordinates), its rank, its spell and picture, and which nodes it leads to. That is enough to draw the tree as the game
+-- does, also for a character that is not logged in.
+-- The game does not say when a character last reset its talents (respec). What can be seen is the points spent: when they fall, the
+-- talents were reset, and that moment is kept (rec.respecAt). Resets from before the addon watched the character are not known. Not noted
+-- in the first moments after login (the data may still be arriving).
+local loginAt = GetTime()
+
+local function SpellPicture(spell)
+    if not spell then return nil end
+    local tex
+    if C_Spell and C_Spell.GetSpellTexture then local ok, v = pcall(C_Spell.GetSpellTexture, spell) if ok then tex = v end end
+    if not tex and GetSpellTexture then local ok, v = pcall(GetSpellTexture, spell) if ok then tex = v end end
+    return tex
+end
+
+local function ScanTalents(fromEvent)
+    local rec = Acc.Me()
+    if not rec then return end
+    if not (C_ClassTalents and C_ClassTalents.GetActiveConfigID and C_Traits and C_Traits.GetConfigInfo and C_Traits.GetTreeNodes) then return end
+    local okC, cfg = pcall(C_ClassTalents.GetActiveConfigID)
+    if not (okC and cfg) then return end
+    local okI, info = pcall(C_Traits.GetConfigInfo, cfg)
+    local treeID = okI and type(info) == "table" and info.treeIDs and info.treeIDs[1]
+    if not treeID then return end
+    local okN, ids = pcall(C_Traits.GetTreeNodes, treeID)
+    if not (okN and type(ids) == "table" and #ids > 0) then return end
+    local nodes, spent = {}, 0
+    for _, id in ipairs(ids) do
+        local ok, nd = pcall(C_Traits.GetNodeInfo, cfg, id)
+        if ok and type(nd) == "table" and nd.ID and nd.posX and nd.isVisible ~= false then
+            local rank = tonumber(nd.currentRank) or 0
+            local entryID = (type(nd.activeEntry) == "table" and nd.activeEntry.entryID) or (nd.entryIDs and nd.entryIDs[1])
+            local spell
+            if entryID and C_Traits.GetEntryInfo then
+                local okE, entry = pcall(C_Traits.GetEntryInfo, cfg, entryID)
+                local defID = okE and type(entry) == "table" and entry.definitionID
+                if defID and C_Traits.GetDefinitionInfo then
+                    local okD, def = pcall(C_Traits.GetDefinitionInfo, defID)
+                    spell = okD and type(def) == "table" and def.spellID or nil
+                end
+            end
+            local edges = {}
+            for _, e in ipairs(nd.visibleEdges or {}) do
+                if type(e) == "table" and e.targetNode then edges[#edges + 1] = e.targetNode end
+            end
+            nodes[#nodes + 1] = { id = nd.ID, x = nd.posX, y = nd.posY, rank = rank, max = tonumber(nd.maxRanks) or 1, spell = spell,
+                tex = SpellPicture(spell), edges = edges }
+            spent = spent + rank
+        end
+    end
+    if #nodes == 0 then return end
+    local old = rec.talents
+    if old and old.spent and spent < old.spent then
+        if not (fromEvent and GetTime() - loginAt > 15) then return end -- (a short reading while loading: the old value stays)
+        rec.respecAt = time()
+    end
+    local unspent = 0
+    if C_Traits.GetTreeCurrencyInfo then
+        local okU, cur = pcall(C_Traits.GetTreeCurrencyInfo, cfg, treeID, false)
+        if okU and type(cur) == "table" and type(cur[1]) == "table" then unspent = tonumber(cur[1].quantity) or 0 end
+    end
+    -- the names and pictures of the three trees (the specializations): the game tells them for the character that is logged in
+    local specs = old and old.specs
+    if C_SpecializationInfo and C_SpecializationInfo.GetSpecializationInfo then
+        local found = {}
+        for i = 1, 3 do
+            local okS, _, name, _, icon = pcall(C_SpecializationInfo.GetSpecializationInfo, i)
+            if okS and type(name) == "string" then found[i] = { name = name, icon = icon } end
+        end
+        if #found > 0 then specs = found end
+    end
+    rec.talents = { spent = spent, unspent = unspent, nodes = nodes, tree = treeID, specs = specs }
+    Stamp(rec, "talents")
+end
+
 local RUN = {
     info = ScanInfo, equip = ScanEquipment, bags = ScanBags, bank = ScanBank, mail = ScanMail,
     skills = ScanSkills, auctions = ScanAuctions,
+    talents = function() ScanTalents(false) end, talentsChanged = function() ScanTalents(true) end,
     trade = function() ScanRecipes("trade") end, craft = function() ScanRecipes("craft") end,
 }
 
@@ -779,7 +869,9 @@ end)
 local events = CreateFrame("Frame")
 local HANDLE = {
     PLAYER_LOGIN = function() Queue("info"); Queue("equip"); Queue("bags"); Queue("skills"); C_Timer.After(6, RequestPlayed); C_Timer.After(8, function() Queue("info") end) end,
-    PLAYER_ENTERING_WORLD = function() Queue("info"); Queue("skills") end,
+    PLAYER_ENTERING_WORLD = function() Queue("info"); Queue("skills"); C_Timer.After(5, function() Queue("talents") end) end,
+    PLAYER_TALENT_UPDATE = function() Queue("talentsChanged") end,
+    CHARACTER_POINTS_CHANGED = function() Queue("talentsChanged") end,
     PLAYER_LEVEL_UP = function() Queue("info"); C_Timer.After(3, function() Queue("info") end) end,
     UPDATE_EXHAUSTION = function() Queue("info") end,
     PLAYER_UPDATE_RESTING = function() Queue("info") end,

@@ -325,6 +325,7 @@ local function NewTable(parent, owner)
     head:SetPoint("TOPLEFT")
     head:SetPoint("TOPRIGHT")
     head:SetHeight(ROW_H)
+    head:SetClipsChildren(true) -- (the titles stay in the frame whatever the columns do)
     local hbg = head:CreateTexture(nil, "BACKGROUND")
     hbg:SetAllPoints()
     hbg:SetColorTexture(0.13, 0.095, 0.06, 1)
@@ -510,6 +511,16 @@ local function NewTable(parent, owner)
             self.xs[i], self.ws[i] = x, w
             x = x + w
         end
+        -- more than there is room for (a small window): all columns become narrower in the same proportion
+        if x > width then
+            local k = width / x
+            x = 0
+            for i = 1, #self.cols do
+                self.ws[i] = self.ws[i] * k
+                self.xs[i] = x
+                x = x + self.ws[i]
+            end
+        end
         content:SetWidth(width)
         -- the column titles
         for i, col in ipairs(self.cols) do
@@ -604,10 +615,8 @@ local function NewTable(parent, owner)
                 cell.fs:SetJustifyH(align)
                 cell.fs:SetText(spec.text or "")
                 cell.fs:SetTextColor(unpack(C.text))
-                -- two bars side by side (experience, rested bonus) in the look of the goal bars: a dark
-                -- track with a thin gilded edge, a fill with the game's own bar texture, the figure inside.
-                -- Gold is progress; jade is the rested bonus, brighter and with a jade edge when it is full.
-                -- Every size and offset is a whole number of screen pixels, so the edges stay sharp.
+                -- experience: one slim bar with the rested bonus as a jade piece after the gold; the figures stand beside it. No frame, no
+                -- inner text: a thin frame at fractions of a pixel is what made the old bars look blurred. Sizes and places are whole screen pixels.
                 if spec.bar then
                     if not cell.barBg then
                         cell.barBg = r:CreateTexture(nil, "ARTWORK")
@@ -618,10 +627,6 @@ local function NewTable(parent, owner)
                         cell.barEdge2 = r:CreateTexture(nil, "BACKGROUND", nil, 2)
                         cell.shine = r:CreateTexture(nil, "ARTWORK", nil, 2)
                         cell.shine2 = r:CreateTexture(nil, "ARTWORK", nil, 2)
-                        cell.shine:SetColorTexture(1, 1, 1, 0.07)
-                        cell.shine2:SetColorTexture(1, 1, 1, 0.07)
-                        cell.barFill:SetTexture("Interface\\TargetingFrame\\UI-StatusBar")
-                        cell.barRest:SetTexture("Interface\\TargetingFrame\\UI-StatusBar")
                         for _, t in ipairs({ cell.barBg, cell.barFill, cell.barBg2, cell.barRest, cell.barEdge, cell.barEdge2, cell.shine, cell.shine2 }) do
                             if t.SetSnapToPixelGrid then t:SetSnapToPixelGrid(true) end
                             if t.SetTexelSnappingBias then t:SetTexelSnappingBias(0) end
@@ -629,53 +634,40 @@ local function NewTable(parent, owner)
                     end
                     if not cell.fs2 then
                         cell.fs2 = r:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-                        cell.fs2:SetShadowOffset(1, -1)
-                        cell.fs:SetShadowOffset(1, -1)
                     end
                     local px = Pixel(r)
-                    local H = Snap(r, 10)
-                    -- top edge of the bar's frame, a whole number of pixels from the row's top: it sits in the middle, and none of its four edges is lost
-                    local yTop = Snap(r, (ROW_H - (H + 2 * px)) / 2)
-                    local GAP = Snap(r, 12)
-                    local bw = Snap(r, math.max(14, math.min(120, (w - 16 - GAP) / 2)))
-                    local bx1 = Snap(r, x + 8)
-                    local bx2 = bx1 + bw + GAP
+                    local H = Snap(r, 5)
+                    local yTop = Snap(r, (ROW_H - H) / 2)
+                    local bw = Snap(r, math.max(30, math.min(80, w * 0.42)))
+                    local bx = Snap(r, x + 8)
                     local v = math.max(0, math.min(1, spec.bar.value or 0))
-                    local rv = math.max(0, math.min(1, spec.bar.rest or 0))
-                    local function Frame(edge, bg, fill, shine, bx, frac)
-                        edge:ClearAllPoints(); edge:SetPoint("TOPLEFT", r, "TOPLEFT", bx - px, -yTop); edge:SetSize(bw + 2 * px, H + 2 * px)
-                        bg:ClearAllPoints(); bg:SetPoint("TOPLEFT", r, "TOPLEFT", bx, -(yTop + px)); bg:SetSize(bw, H)
-                        bg:SetColorTexture(0.015, 0.012, 0.01, 1)
-                        local fw = frac > 0 and math.max(px, Snap(r, bw * frac)) or 0
-                        fill:ClearAllPoints(); fill:SetPoint("TOPLEFT", r, "TOPLEFT", bx, -(yTop + px)); fill:SetSize(math.max(px, fw), H)
-                        shine:ClearAllPoints()
-                        shine:SetPoint("TOPLEFT", fill, "TOPLEFT")
-                        shine:SetPoint("TOPRIGHT", fill, "TOPRIGHT")
-                        shine:SetHeight(Snap(r, 3))
-                        edge:Show(); bg:Show(); fill:SetShown(frac > 0); shine:SetShown(frac > 0)
-                    end
-                    Frame(cell.barEdge, cell.barBg, cell.barFill, cell.shine, bx1, v)
-                    cell.barEdge:SetColorTexture(C.goldDim[1], C.goldDim[2], C.goldDim[3], 1)
-                    cell.barFill:SetVertexColor(0.78, 0.62, 0.28, 1) -- the muted gold of the goal bars (the texture darkens it)
-                    Frame(cell.barEdge2, cell.barBg2, cell.barRest, cell.shine2, bx2, rv)
-                    if spec.bar.full then
-                        cell.barEdge2:SetColorTexture(C.jade[1], C.jade[2], C.jade[3], 1)
-                        cell.barRest:SetVertexColor(0.34, 0.74, 0.60, 1)
-                    else
-                        cell.barEdge2:SetColorTexture(C.goldDim[1], C.goldDim[2], C.goldDim[3], 1)
-                        cell.barRest:SetVertexColor(0.25, 0.53, 0.43, 1)
-                    end
+                    local restPart = math.max(0, math.min(1 - v, (spec.bar.rest or 0) * 1.5))
+                    -- the track, then the gold, then the jade piece (all solid colours)
+                    cell.barBg:ClearAllPoints(); cell.barBg:SetPoint("TOPLEFT", r, "TOPLEFT", bx, -yTop); cell.barBg:SetSize(bw, H)
+                    cell.barBg:SetColorTexture(1, 1, 1, 0.07)
+                    local fw = v > 0 and math.max(px, Snap(r, bw * v)) or 0
+                    cell.barFill:ClearAllPoints(); cell.barFill:SetPoint("TOPLEFT", r, "TOPLEFT", bx, -yTop); cell.barFill:SetSize(math.max(px, fw), H)
+                    cell.barFill:SetColorTexture(0.86, 0.69, 0.3, 0.95)
+                    local rw2 = restPart > 0 and math.max(px, Snap(r, bw * restPart)) or 0
+                    cell.barRest:ClearAllPoints(); cell.barRest:SetPoint("TOPLEFT", r, "TOPLEFT", bx + fw, -yTop); cell.barRest:SetSize(math.max(px, rw2), H)
+                    if spec.bar.full then cell.barRest:SetColorTexture(C.jade[1], C.jade[2], C.jade[3], 0.9)
+                    else cell.barRest:SetColorTexture(0.3, 0.62, 0.5, 0.7) end
+                    cell.barBg:Show(); cell.barFill:SetShown(v > 0); cell.barRest:SetShown(restPart > 0)
+                    cell.barBg2:Hide(); cell.barEdge:Hide(); cell.barEdge2:Hide(); cell.shine:Hide(); cell.shine2:Hide()
+                    -- the figures beside the bar: the percent, then the rested bonus
                     cell.fs:ClearAllPoints()
-                    cell.fs:SetPoint("CENTER", r, "LEFT", bx1 + bw / 2, 0)
-                    cell.fs:SetWidth(bw)
-                    cell.fs:SetJustifyH("CENTER")
+                    cell.fs:SetPoint("LEFT", r, "LEFT", bx + bw + 8, 0)
+                    cell.fs:SetWidth(38)
+                    cell.fs:SetJustifyH("LEFT")
                     cell.fs:SetText(spec.bar.t1 or "")
                     cell.fs:Show()
                     cell.fs2:ClearAllPoints()
-                    cell.fs2:SetPoint("CENTER", r, "LEFT", bx2 + bw / 2, 0)
-                    cell.fs2:SetWidth(bw)
-                    cell.fs2:SetJustifyH("CENTER")
+                    cell.fs2:SetPoint("LEFT", r, "LEFT", bx + bw + 8 + 40, 0)
+                    cell.fs2:SetWidth(math.max(20, x + w - (bx + bw + 8 + 40) - 4))
+                    cell.fs2:SetJustifyH("LEFT")
+                    cell.fs2:SetWordWrap(false)
                     cell.fs2:SetText(spec.bar.t2 or "")
+                    cell.fs2:SetTextColor(spec.bar.full and C.jade[1] or 0.5, spec.bar.full and C.jade[2] or 0.78, spec.bar.full and C.jade[3] or 0.66)
                     cell.fs2:Show()
                 elseif cell.barBg then
                     cell.barBg:Hide(); cell.barFill:Hide(); cell.barBg2:Hide(); cell.barRest:Hide()
@@ -1106,6 +1098,7 @@ local TABS = {
     { "overview", L["Overview"], "Interface\\Icons\\INV_Misc_GroupLooking" }, { "equip", L["Equipment"], "Interface\\Icons\\INV_Chest_Chain_03" },
     { "inv", L["Bags & bank"], "Interface\\Icons\\INV_Misc_Bag_08" }, { "prof", L["Professions"], "Interface\\Icons\\Trade_BlackSmithing" },
     { "mail", L["Mail"], "Interface\\Icons\\INV_Letter_15" }, { "ah", L["Auctions"], "Interface\\Icons\\INV_Misc_Coin_02" },
+    { "talents", L["Talents"], "Interface\\Icons\\Ability_Marksmanship" },
 }
 local tabButtons = {}
 for i, def in ipairs(TABS) do
@@ -1162,7 +1155,36 @@ local ALL_VIEWS = {
     { id = "storage", label = L["Storage"], icon = "Interface\\Icons\\INV_Misc_Bag_08" },
     { id = "gear", label = L["Equipment"], icon = "Interface\\Icons\\INV_Chest_Chain_03" },
     { id = "time", label = L["Time played"], icon = "Interface\\Icons\\INV_Misc_PocketWatch_01" },
+    { id = "talents", label = L["Talents"], icon = "Interface\\Icons\\Ability_Marksmanship" },
 }
+-- the points in each of the three trees: the nodes lie in three bands side by side, so the width is cut in three
+local function TreePoints(t)
+    local nodes = t and t.nodes
+    if not (nodes and #nodes > 0) then return nil end
+    local lo, hi = math.huge, -math.huge
+    for _, nd in ipairs(nodes) do lo = math.min(lo, nd.x); hi = math.max(hi, nd.x) end
+    local out = { 0, 0, 0 }
+    local width = math.max(1, hi - lo)
+    for _, nd in ipairs(nodes) do
+        local band = math.min(3, math.floor((nd.x - lo) / width * 3) + 1)
+        out[band] = out[band] + (nd.rank or 0)
+    end
+    return out
+end
+-- the filter of the talents view: when the character last reset its talents
+local RESPEC_FILTERS = { { "all", L["All"] }, { "unknown", L["Not seen yet"] }, { "7", L["Over 7 days ago"] }, { "30", L["Over 30 days ago"] },
+    { "90", L["Over 90 days ago"] } }
+local function RespecFilterLabel()
+    for _, d in ipairs(RESPEC_FILTERS) do if d[1] == (view.respecFilter or "all") then return d[2] end end
+    return L["All"]
+end
+local function RespecShown(rec)
+    local f = view.respecFilter or "all"
+    if f == "all" then return true end
+    if f == "unknown" then return not rec.respecAt end
+    if not rec.respecAt then return false end
+    return time() - rec.respecAt > (tonumber(f) or 0) * 86400
+end
 
 local PLACEHOLDER = "Interface\\Icons\\INV_Misc_QuestionMark"
 local ENCHANT_ICON = "Interface\\Icons\\INV_Enchant_EssenceMagicLarge"
@@ -1218,6 +1240,20 @@ local function SlotsText(set)
     local used = set.slots - (set.free or 0)
     local col = (set.free or 0) <= 2 and RED or ((set.free or 0) <= 6 and AMBER or "")
     return col .. used .. "|r" .. MUTED .. " / " .. set.slots .. "|r", set.free or 0
+end
+
+-- the sizes of the bags as "12 / 12 / 12 / 12": a small bag is amber, an empty slot for a bag red (the first thing to improve)
+local function SizesText(set)
+    local sizes = set and set.sizes
+    if not (sizes and #sizes > 0) then return MUTED .. "?|r", -1 end
+    local parts, sum = {}, 0
+    for _, n in ipairs(sizes) do
+        sum = sum + n
+        if n == 0 then parts[#parts + 1] = RED .. "–|r"
+        elseif n <= 10 then parts[#parts + 1] = AMBER .. n .. "|r"
+        else parts[#parts + 1] = tostring(n) end
+    end
+    return table.concat(parts, MUTED .. " / |r"), sum
 end
 
 local function MailStats(rec)
@@ -1283,7 +1319,9 @@ local ALL_COLS = {
     },
     storage = {
         { id = "bags", title = L["Bags"], w = 90, align = "RIGHT", sort = true },
+        { id = "bagSizes", title = L["Bag sizes"], w = 130, align = "RIGHT", sort = true },
         { id = "bank", title = L["Bank"], w = 90, align = "RIGHT", sort = true },
+        { id = "bankSizes", title = L["Bank bag sizes"], w = 190, align = "RIGHT", sort = true },
         { id = "bankSeen", title = L["Bank read"], w = 100, align = "RIGHT" },
         { id = "mail", title = L["Mail"], w = 70, align = "RIGHT", sort = true, desc = true },
         { id = "soon", title = L["Expiring soon"], w = 110, align = "RIGHT", sort = true, desc = true },
@@ -1300,6 +1338,13 @@ local ALL_COLS = {
         { id = "played", title = L["Played"], w = 100, align = "RIGHT", sort = true, desc = true },
         { id = "atLevel", title = L["At this level"], w = 110, align = "RIGHT", sort = true, desc = true },
         { id = "seen", title = L["Last seen"], w = 110, align = "RIGHT", sort = true, desc = true },
+    },
+    talents = {
+        { id = "level", title = L["Level"], w = 68, align = "RIGHT", sort = true, desc = true },
+        { id = "spent", title = L["Points spent"], w = 110, align = "RIGHT", sort = true, desc = true },
+        { id = "unspent", title = L["Unspent"], w = 90, align = "RIGHT", sort = true, desc = true },
+        { id = "trees", title = L["Trees"], flex = 1.4 },
+        { id = "respec", title = L["Last respec"], w = 150, align = "RIGHT", sort = true, desc = true },
     },
 }
 
@@ -1336,7 +1381,7 @@ local function DynamicCols(kind, secNames)
     if kind == "overview" then
         local cols = {
             { id = "level", title = L["Level"], w = 68, align = "RIGHT", sort = true, desc = true },
-            { id = "xp", title = L["Experience"], flex = 1, min = 210, sort = true, desc = true },
+            { id = "xp", title = L["Experience"], flex = 1, min = 150, sort = true, desc = true },
         }
         for _, col in ipairs(ProfColumns(secNames, false)) do cols[#cols + 1] = col end
         cols[#cols + 1] = { id = "money", title = L["Money"], w = 100, align = "RIGHT", sort = true, desc = true }
@@ -1467,15 +1512,27 @@ local function AllRow(kind, rec, here, secNames)
         local bankText, bankFree = SlotsText(rec.bank)
         local n, _, soon = MailStats(rec)
         local ahN = AuctionStats(rec)
-        cells = { bagText, bankText, rec.at and rec.at.bank and Ago(rec.at.bank) or (AMBER .. L["never"] .. "|r"),
+        local bagSizes, bagSum = SizesText(rec.bags)
+        local bankSizes, bankSum = SizesText(rec.bank)
+        cells = { bagText, bagSizes, bankText, bankSizes, rec.at and rec.at.bank and Ago(rec.at.bank) or (AMBER .. L["never"] .. "|r"),
             (rec.at and rec.at.mail) and tostring(n) or MUTED .. "?|r", soon > 0 and (RED .. soon .. "|r") or MUTED .. "0|r",
             (rec.at and rec.at.auctions) and tostring(ahN) or MUTED .. "?|r" }
-        sort = { bags = bagFree, bank = bankFree, mail = n, soon = soon, auctions = ahN }
+        sort = { bags = bagFree, bagSizes = bagSum, bank = bankFree, bankSizes = bankSum, mail = n, soon = soon, auctions = ahN }
     elseif kind == "gear" then
         local filled = 0
         for _ in pairs(rec.equip or {}) do filled = filled + 1 end
         cells = { tostring(rec.level or 0), rec.ilvl and ("%d"):format(rec.ilvl) or MUTED .. "–|r", ("%d / 19"):format(filled), Ago(rec.at and rec.at.equip) }
         sort = { level = rec.level or 0, ilvl = rec.ilvl or 0, worn = filled }
+    elseif kind == "talents" then
+        local t = rec.talents
+        local trees = {}
+        local per = TreePoints(t)
+        if per then trees[1] = ("%d / %d / %d"):format(per[1], per[2], per[3]) end
+        cells = { tostring(rec.level or 0), t and tostring(t.spent) or MUTED .. "–|r",
+            (t and t.unspent and t.unspent > 0) and (AMBER .. t.unspent .. "|r") or MUTED .. "0|r",
+            #trees > 0 and table.concat(trees, " / ") or MUTED .. "–|r",
+            rec.respecAt and Ago(rec.respecAt) or (MUTED .. L["not seen yet"] .. "|r") }
+        sort = { level = rec.level or 0, spent = t and t.spent or -1, unspent = t and t.unspent or 0, respec = rec.respecAt or 0 }
     else -- time
         cells = { tostring(rec.level or 0), Played(rec.played), Played(rec.playedLevel), Seen() }
         sort = { level = rec.level or 0, played = rec.played or 0, atLevel = rec.playedLevel or 0, seen = seenSort }
@@ -1497,6 +1554,16 @@ local function ViewAll()
         end
         return rows
     end } } }
+    if kind == "talents" then
+        bar.items[#bar.items + 1] = { label = L["Last respec"] .. ": " .. RespecFilterLabel(), icon = "Interface\\Icons\\INV_Misc_PocketWatch_01", on = false, gen = function()
+            local rows = {}
+            for _, d in ipairs(RESPEC_FILTERS) do
+                rows[#rows + 1] = { kind = "radio", state = State((view.respecFilter or "all") == d[1]), label = d[2],
+                    onClick = function() view.respecFilter = d[1]; dirty = true end }
+            end
+            return rows
+        end }
+    end
     local cols = { { id = "name", title = L["Name"], w = 150, sort = true } }
     local secNames = SecondaryNames()
     local kindCols = DynamicCols(kind, secNames) or ALL_COLS[kind] or DynamicCols("overview", secNames)
@@ -1504,6 +1571,7 @@ local function ViewAll()
     local data = {}
     local groupFn = ns.Acc.GroupFn()
     for _, rec in ipairs(chars) do
+      if kind ~= "talents" or RespecShown(rec) then
         local tex, coords = ClassIcon(rec.class)
         local here = rec.key == ns.Acc.MyKey()
         local cells, sort, tip = AllRow(kind, rec, here, secNames)
@@ -1512,6 +1580,7 @@ local function ViewAll()
         sort.name = (rec.name or ""):lower()
         data[#data + 1] = { cells = cells, sort = sort, tip = tip, group = groupFn and groupFn(rec) or nil,
             onClick = function() view.mode, view.key = "char", rec.key; dirty = true end }
+      end
     end
     local totals = ns.Acc.Totals()
     heading:SetText(L["All characters"])
@@ -1521,6 +1590,8 @@ local function ViewAll()
         note = AMBER .. L["No character known yet. Log in with each of your characters once."] .. "|r"
     elseif kind == "xp" then
         note = L["Rested experience of characters that are not logged in is an estimate from when you last played."]
+    elseif kind == "talents" then
+        note = L["The game does not say when talents were reset. A reset is noted when the addon sees the points fall; before that it says \"not seen yet\"."]
     else
         note = L["Click a character to see its equipment, bags, professions and mail."]
     end
@@ -1996,12 +2067,15 @@ end
 local function LayoutRight()
     local charView = view.mode == "char" and Rec() and view.query == ""
     local x = 10
+    -- (the tabs are narrower when the window is: all of them stay in it, with room for the button at the right)
+    local tabW = math.max(72, math.min(116, math.floor((right:GetWidth() - 20 - 150) / #tabButtons) - 4))
     for _, b in ipairs(tabButtons) do
         b:ClearAllPoints()
+        b:SetWidth(tabW)
         b:SetPoint("TOPLEFT", right, "TOPLEFT", x, -8)
         b:SetShown(charView)
         b:SetSelected(b.id == view.tab)
-        x = x + 120
+        x = x + tabW + 4
     end
     local baseTop = charView and 38 or 8
     local bx = 10
@@ -2046,6 +2120,309 @@ local function LayoutRight()
     tbl.frame:SetPoint("BOTTOMRIGHT", right, "BOTTOMRIGHT", -6, 6)
 end
 
+-- The talent tree of a character, drawn as the game does: the nodes where the game puts them, their pictures, the ranks, the lines between them.
+-- The coordinates are the game's own (a step of 600 is one place); a node has its rank as a small number, grey while it has none.
+local tree = CreateFrame("Frame", nil, right)
+tree:Hide()
+tree.buttons, tree.lines, tree.heads, tree.panels = {}, {}, {}, {}
+tree.flip = W.NewButton(tree, L["Flip"], 60, 20)
+tree.flip:SetPoint("TOPRIGHT", -4, -2)
+tree.flip:SetScript("OnClick", function() view.treeFlip = not view.treeFlip; dirty = true end)
+tree.empty = tree:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+tree.empty:SetPoint("CENTER")
+tree.empty:SetWidth(420)
+tree.empty:SetTextColor(unpack(C.muted))
+-- three layers: the panels with their pictures, then the lines, then the talents
+tree.fx = CreateFrame("Frame", nil, tree)
+tree.fx:SetAllPoints()
+tree.top = CreateFrame("Frame", nil, tree)
+tree.top:SetAllPoints()
+tree.head = tree.top:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+tree.head:SetPoint("TOPLEFT", 4, -2)
+
+-- the pictures behind the three trees of each class (the game's own, by the names of its atlases)
+local SPEC_ART = {
+    WARRIOR = { "arms", "fury", "protection" }, PALADIN = { "holy", "protection", "retribution" }, HUNTER = { "beastmastery", "marksmanship", "survival" },
+    ROGUE = { "assassination", "outlaw", "subtlety" }, PRIEST = { "discipline", "holy", "shadow" }, SHAMAN = { "elemental", "enhancement", "restoration" },
+    MAGE = { "arcane", "fire", "frost" }, WARLOCK = { "affliction", "demonology", "destruction" }, DRUID = { "balance", "feral", "restoration" },
+}
+-- the three trees of each class: their names (English, German) and pictures, for a character the addon has not read the trees of (the game
+-- tells them only for the character that is logged in; what it tells wins)
+local SPEC_STATIC = {
+    WARRIOR = { { en = "Arms", de = "Waffen", icon = "Interface\\Icons\\Ability_Rogue_Eviscerate" }, { en = "Fury", de = "Furor", icon = "Interface\\Icons\\Ability_Warrior_InnerRage" }, { en = "Protection", de = "Schutz", icon = "Interface\\Icons\\INV_Shield_06" } },
+    PALADIN = { { en = "Holy", de = "Heilig", icon = "Interface\\Icons\\Spell_Holy_HolyBolt" }, { en = "Protection", de = "Schutz", icon = "Interface\\Icons\\Spell_Holy_DevotionAura" }, { en = "Retribution", de = "Vergeltung", icon = "Interface\\Icons\\Spell_Holy_AuraOfLight" } },
+    HUNTER = { { en = "Beast Mastery", de = "Tierherrschaft", icon = "Interface\\Icons\\Ability_Hunter_BeastTaming" }, { en = "Marksmanship", de = "Treffsicherheit", icon = "Interface\\Icons\\Ability_Marksmanship" }, { en = "Survival", de = "Überleben", icon = "Interface\\Icons\\Ability_Hunter_SwiftStrike" } },
+    ROGUE = { { en = "Assassination", de = "Meucheln", icon = "Interface\\Icons\\Ability_Rogue_Eviscerate" }, { en = "Combat", de = "Kampf", icon = "Interface\\Icons\\Ability_BackStab" }, { en = "Subtlety", de = "Täuschung", icon = "Interface\\Icons\\Ability_Stealth" } },
+    PRIEST = { { en = "Discipline", de = "Disziplin", icon = "Interface\\Icons\\Spell_Holy_WordFortitude" }, { en = "Holy", de = "Heilig", icon = "Interface\\Icons\\Spell_Holy_HolyBolt" }, { en = "Shadow", de = "Schatten", icon = "Interface\\Icons\\Spell_Shadow_ShadowWordPain" } },
+    SHAMAN = { { en = "Elemental Combat", de = "Elementarkampf", icon = "Interface\\Icons\\Spell_Nature_Lightning" }, { en = "Enhancement", de = "Verstärkung", icon = "Interface\\Icons\\Spell_Nature_LightningShield" }, { en = "Restoration", de = "Wiederherstellung", icon = "Interface\\Icons\\Spell_Nature_MagicImmunity" } },
+    MAGE = { { en = "Arcane", de = "Arkan", icon = "Interface\\Icons\\Spell_Holy_MagicalSentry" }, { en = "Fire", de = "Feuer", icon = "Interface\\Icons\\Spell_Fire_FireBolt02" }, { en = "Frost", de = "Frost", icon = "Interface\\Icons\\Spell_Frost_FrostBolt02" } },
+    WARLOCK = { { en = "Affliction", de = "Gebrechen", icon = "Interface\\Icons\\Spell_Shadow_DeathCoil" }, { en = "Demonology", de = "Dämonologie", icon = "Interface\\Icons\\Spell_Shadow_Metamorphosis" }, { en = "Destruction", de = "Zerstörung", icon = "Interface\\Icons\\Spell_Shadow_RainOfFire" } },
+    DRUID = { { en = "Balance", de = "Gleichgewicht", icon = "Interface\\Icons\\Spell_Nature_StarFall" }, { en = "Feral Combat", de = "Wilder Kampf", icon = "Interface\\Icons\\Ability_Racial_BearForm" }, { en = "Restoration", de = "Wiederherstellung", icon = "Interface\\Icons\\Spell_Nature_HealingTouch" } },
+}
+local function SafeAtlas(tex, name)
+    return tex.SetAtlas and pcall(tex.SetAtlas, tex, name, false)
+end
+
+local function TreePanel(i)
+    local p = tree.panels[i]
+    if p then return p end
+    p = CreateFrame("Frame", nil, tree)
+    p:SetFrameLevel(tree:GetFrameLevel() + 1)
+    p.bg = p:CreateTexture(nil, "BACKGROUND")
+    p.shade = p:CreateTexture(nil, "BACKGROUND", nil, 1)
+    p.shade:SetAllPoints()
+    p.shade:SetColorTexture(0, 0, 0, 0.45)
+    p.edge = p:CreateTexture(nil, "BORDER")
+    p.edge:SetPoint("TOPRIGHT")
+    p.edge:SetPoint("BOTTOMRIGHT")
+    p.edge:SetWidth(1)
+    p.edge:SetColorTexture(0, 0, 0, 0.8)
+    p.rule = p:CreateTexture(nil, "ARTWORK")
+    p.rule:SetColorTexture(0.85, 0.62, 0.25, 0.55)
+    p.rule:SetHeight(1)
+    -- the head: the picture of the tree in its ring, the points in the little plate, and the name
+    p.icon = p:CreateTexture(nil, "ARTWORK")
+    p.icon:SetSize(34, 34)
+    p.icon:SetTexCoord(0.07, 0.93, 0.07, 0.93)
+    p.ring = p:CreateTexture(nil, "OVERLAY")
+    p.ring:SetSize(46, 46)
+    p.ring:SetPoint("CENTER", p.icon, "CENTER")
+    p.plate = p:CreateTexture(nil, "OVERLAY", nil, 2)
+    p.plate:SetSize(33, 22)
+    p.plate:SetPoint("BOTTOMRIGHT", p.ring, "BOTTOMRIGHT", 7, -6)
+    p.points = p:CreateFontString(nil, "OVERLAY", "NumberFontNormalSmall")
+    p.points:SetPoint("CENTER", p.plate, "CENTER", 0, 0)
+    p.name = p:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
+    tree.panels[i] = p
+    return p
+end
+
+local function TreeButton(i)
+    local b = tree.buttons[i]
+    if b then return b end
+    b = CreateFrame("Button", nil, tree)
+    b:SetFrameLevel(tree:GetFrameLevel() + 4)
+    b.glow = b:CreateTexture(nil, "BACKGROUND")
+    b.glow:SetPoint("CENTER")
+    b.icon = b:CreateTexture(nil, "ARTWORK")
+    b.icon:SetPoint("TOPLEFT", 3, -3)
+    b.icon:SetPoint("BOTTOMRIGHT", -3, 3)
+    b.icon:SetTexCoord(0.07, 0.93, 0.07, 0.93)
+    b.frame = b:CreateTexture(nil, "OVERLAY")
+    b.frame:SetAllPoints()
+    b.plate = b:CreateTexture(nil, "OVERLAY", nil, 2)
+    b.plate:SetSize(33, 22)
+    b.plate:SetPoint("BOTTOMRIGHT", 7, -6)
+    b.rank = b:CreateFontString(nil, "OVERLAY", "NumberFontNormalSmall")
+    b.rank:SetPoint("CENTER", b.plate, "CENTER", 0, 0)
+    b:SetScript("OnEnter", function(self)
+        local nd = self.node
+        if not nd then return end
+        GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+        local ok = nd.spell and pcall(GameTooltip.SetSpellByID, GameTooltip, nd.spell)
+        if not ok then GameTooltip:AddLine("?", 1, 0.85, 0.4) end
+        GameTooltip:AddLine(" ")
+        local col = nd.rank >= nd.max and { 0.4, 0.86, 0.66 } or (nd.rank > 0 and { 1, 0.82, 0.2 } or { 0.6, 0.6, 0.6 })
+        GameTooltip:AddLine(("%s %d / %d"):format(L["Rank"], nd.rank, nd.max), col[1], col[2], col[3])
+        GameTooltip:Show()
+    end)
+    b:SetScript("OnLeave", function() GameTooltip:Hide() end)
+    tree.buttons[i] = b
+    return b
+end
+
+local function TreeArrow(i, yellow)
+    local h = tree.heads[i]
+    if not h then h = tree.fx:CreateTexture(nil, "ARTWORK", nil, 2); tree.heads[i] = h end
+    SafeAtlas(h, yellow and "talents-arrow-head-yellow" or "talents-arrow-head-gray")
+    return h
+end
+
+local function DrawTree(rec)
+    local t = rec.talents
+    local nodes = t and t.nodes
+    for _, b in ipairs(tree.buttons) do b:Hide() end
+    for _, ln in ipairs(tree.lines) do ln:Hide() end
+    for _, h in ipairs(tree.heads) do h:Hide() end
+    for _, p in ipairs(tree.panels) do p:Hide() end
+    if not (nodes and #nodes > 0) then
+        tree.head:SetText("")
+        tree.flip:Hide()
+        tree.empty:SetText(L["No talents read yet. Log in with this character once."])
+        tree.empty:Show()
+        return
+    end
+    tree.empty:Hide()
+    tree.flip:Show()
+    local per = TreePoints(t) or { 0, 0, 0 }
+    tree.head:SetText(("%s: |cffffd100%d|r    %s: %d"):format(L["Points spent"], t.spent or 0, L["Unspent"], t.unspent or 0))
+    local availW, availH = tree:GetWidth() - 8, tree:GetHeight() - 28
+    if availW < 80 or availH < 120 then dirty = true return end
+    -- The three trees lie in three bands side by side; the game's own coordinates leave a wide space between them. Here the bands are moved
+    -- together (a gap of one and a half places), each with its own columns unchanged. nd.dx is where a node is drawn.
+    local gx0, gx1 = math.huge, -math.huge
+    for _, nd in ipairs(nodes) do gx0 = math.min(gx0, nd.x); gx1 = math.max(gx1, nd.x) end
+    local bandOf = {}
+    local bandLo, bandHi = { math.huge, math.huge, math.huge }, { -math.huge, -math.huge, -math.huge }
+    for _, nd in ipairs(nodes) do
+        local band = math.min(3, math.floor((nd.x - gx0) / math.max(1, gx1 - gx0) * 3) + 1)
+        bandOf[nd.id] = band
+        bandLo[band] = math.min(bandLo[band], nd.x)
+        bandHi[band] = math.max(bandHi[band], nd.x)
+    end
+    local shift, cursor = {}, 0
+    for band = 1, 3 do
+        if bandLo[band] <= bandHi[band] then
+            shift[band] = cursor - bandLo[band]
+            cursor = cursor + (bandHi[band] - bandLo[band]) + 900
+        end
+    end
+    local lo, hi, loY, hiY = math.huge, -math.huge, math.huge, -math.huge
+    local byId = {}
+    for _, nd in ipairs(nodes) do
+        nd.dx = nd.x + (shift[bandOf[nd.id]] or 0)
+        lo = math.min(lo, nd.dx); hi = math.max(hi, nd.dx); loY = math.min(loY, nd.y); hiY = math.max(hiY, nd.y)
+        byId[nd.id] = nd
+    end
+    -- which way the game's up lies: the nodes nothing leads to (the first row of a tree) are at the top
+    local targeted = {}
+    for _, nd in ipairs(nodes) do for _, id in ipairs(nd.edges or {}) do targeted[id] = true end end
+    local rootSum, rootN, restSum, restN = 0, 0, 0, 0
+    for _, nd in ipairs(nodes) do
+        if targeted[nd.id] then restSum = restSum + nd.y; restN = restN + 1 else rootSum = rootSum + nd.y; rootN = rootN + 1 end
+    end
+    local downward = true -- (the first row has the smaller y: the y runs downwards)
+    if rootN > 0 and restN > 0 then downward = rootSum / rootN < restSum / restN end
+    if view.treeFlip then downward = not downward end
+    local UNIT, ICON, PAD, HEADER = 0.1, 40, 22, 58 -- (pixels per unit of the game's coordinates; the size of a talent; room at the sides; the head)
+    local wide = (hi - lo) * UNIT + ICON + 2 * PAD
+    local tall = (hiY - loY) * UNIT + ICON
+    local k = math.min(1.3, availW / wide, (availH - HEADER - 8) / tall)
+    local size = ICON * k
+    local ox = 4 + (availW - wide * k) / 2 + PAD * k + size / 2
+    local top = 26
+    local oy = top + HEADER + size / 2
+    local function Pos(nd)
+        local px = ox + (nd.dx - lo) * UNIT * k
+        local py = oy + ((downward and (nd.y - loY)) or (hiY - nd.y)) * UNIT * k
+        return px, py
+    end
+    -- the panels: the picture of each tree behind it, its head, and the thin lines between
+    local classKey = tostring(rec.class or ""):upper()
+    local arts = SPEC_ART[classKey]
+    for band = 1, 3 do
+        if bandLo[band] <= bandHi[band] then
+            local p = TreePanel(band)
+            local x1 = ox + (bandLo[band] + (shift[band] or 0) - lo) * UNIT * k - size / 2 - PAD * k
+            local x2 = ox + (bandHi[band] + (shift[band] or 0) - lo) * UNIT * k + size / 2 + PAD * k
+            p:ClearAllPoints()
+            p:SetPoint("TOPLEFT", tree, "TOPLEFT", x1, -top)
+            p:SetPoint("BOTTOMRIGHT", tree, "TOPLEFT", x2, -(tree:GetHeight() - 2))
+            p.edge:SetShown(band < 3)
+            if arts and arts[band] and C_Texture and C_Texture.GetAtlasInfo and C_Texture.GetAtlasInfo("talents-background-" .. classKey:lower() .. "-" .. arts[band]) then
+                W.LayoutBg(p.bg, p, { atlas = "talents-background-" .. classKey:lower() .. "-" .. arts[band] }, "zoom")
+                p.bg:Show()
+            else
+                p.bg:Hide()
+            end
+            -- The name is the fixed one (the game's first "specialization" is the class itself, not a tree). The picture is the game's when
+            -- it has one for this tree (its name is the same), else the fixed one.
+            local spec = t.specs and t.specs[band]
+            local st = SPEC_STATIC[classKey] and SPEC_STATIC[classKey][band]
+            if st then
+                local name = (ns.Lang == "deDE") and st.de or st.en
+                local own = spec and (spec.name == st.de or spec.name == st.en) and spec.icon or nil
+                spec = { name = name, icon = own or st.icon }
+            end
+            p.rule:ClearAllPoints()
+            p.rule:SetPoint("TOPLEFT", p, "TOPLEFT", 12, -(HEADER - 5))
+            p.rule:SetPoint("TOPRIGHT", p, "TOPRIGHT", -12, -(HEADER - 5))
+            p.icon:SetTexture((spec and spec.icon) or "Interface\\Icons\\INV_Misc_QuestionMark")
+            local pts = per[band] or 0
+            SafeAtlas(p.ring, pts > 0 and "talents-node-circle-yellow" or "talents-node-circle-gray")
+            SafeAtlas(p.plate, pts > 0 and "orderhalltalents-rankborder-yellow" or "orderhalltalents-rankborder")
+            p.points:SetText(tostring(pts))
+            p.points:SetTextColor(pts > 0 and 1 or 0.7, pts > 0 and 0.82 or 0.7, pts > 0 and 0.2 or 0.7)
+            p.name:ClearAllPoints()
+            p.name:SetPoint("LEFT", p.icon, "RIGHT", 14, 0)
+            p.name:SetText(spec and spec.name or (L["Tree"] .. " " .. band))
+            p.name:SetTextColor(1, 0.95, 0.85)
+            -- the picture and the name together, in the middle of the panel
+            local total = 34 + 14 + (p.name:GetStringWidth() or 0)
+            p.icon:ClearAllPoints()
+            p.icon:SetPoint("TOPLEFT", p, "TOPLEFT", math.max(8, ((x2 - x1) - total) / 2), -10)
+            p:Show()
+        end
+    end
+    -- the lines between the talents, with an arrow at the end
+    local li, hi2 = 0, 0
+    for _, nd in ipairs(nodes) do
+        for _, id in ipairs(nd.edges or {}) do
+            local other = byId[id]
+            if other then
+                local x1, y1 = Pos(nd)
+                local x2, y2 = Pos(other)
+                local dx, dy = x2 - x1, y2 - y1
+                local len = math.sqrt(dx * dx + dy * dy)
+                if len > size * 1.2 then
+                    local ux, uy = dx / len, dy / len
+                    local sx, sy = x1 + ux * size * 0.52, y1 + uy * size * 0.52
+                    local ex, ey = x2 - ux * size * 0.62, y2 - uy * size * 0.62
+                    local lit = (other.rank or 0) > 0
+                    li = li + 1
+                    local ln = tree.lines[li]
+                    if not ln then ln = tree.fx:CreateLine(nil, "ARTWORK"); tree.lines[li] = ln end
+                    ln:SetThickness(math.max(2, 3 * k))
+                    if lit then ln:SetColorTexture(1, 0.78, 0.1, 0.95) else ln:SetColorTexture(0.62, 0.62, 0.62, 0.6) end
+                    ln:SetStartPoint("TOPLEFT", tree, sx, -sy)
+                    ln:SetEndPoint("TOPLEFT", tree, ex, -ey)
+                    ln:Show()
+                    hi2 = hi2 + 1
+                    local head = TreeArrow(hi2, lit)
+                    head:SetSize(14 * k, 12 * k)
+                    head:ClearAllPoints()
+                    head:SetPoint("CENTER", tree, "TOPLEFT", ex, -ey)
+                    head:SetRotation(math.atan2(ux, uy))
+                    head:Show()
+                end
+            end
+        end
+    end
+    -- the talents: the picture in the game's frame (grey while nothing is learned, gold in part, green full), the rank in a little plate
+    for i, nd in ipairs(nodes) do
+        local b = TreeButton(i)
+        local px, py = Pos(nd)
+        b.node = nd
+        b:SetSize(size, size)
+        b:ClearAllPoints()
+        b:SetPoint("CENTER", tree, "TOPLEFT", px, -py)
+        local rank, max = nd.rank or 0, nd.max or 1
+        b.icon:SetTexture(nd.tex or "Interface\\Icons\\INV_Misc_QuestionMark")
+        b.icon:SetDesaturated(rank == 0)
+        b.icon:SetAlpha(rank == 0 and 0.75 or 1)
+        local state = rank == 0 and "gray" or (rank >= max and "green" or "yellow")
+        if not SafeAtlas(b.frame, "talents-node-square-" .. state) then b.frame:SetColorTexture(0.4, 0.4, 0.4, 0.4) end
+        if rank >= max and rank > 0 then
+            SafeAtlas(b.glow, "talents-node-square-greenglow")
+            b.glow:SetSize(size * 1.7, size * 1.7)
+            b.glow:SetAlpha(0.16)
+            b.glow:Show()
+        else
+            b.glow:Hide()
+        end
+        local showRank = rank > 0 -- (as in the game: a talent nothing is learned of has no number)
+        b.plate:SetShown(showRank)
+        b.rank:SetShown(showRank)
+        if showRank then
+            SafeAtlas(b.plate, state == "green" and "orderhalltalents-rankborder-green" or (state == "yellow" and "orderhalltalents-rankborder-yellow" or "orderhalltalents-rankborder"))
+            b.plate:SetSize(33 * math.max(0.8, k), 22 * math.max(0.8, k))
+            b.rank:SetText(tostring(rank))
+            b.rank:SetTextColor(state == "green" and 0.4 or 1, state == "green" and 0.9 or (state == "yellow" and 0.82 or 0.7), state == "gray" and 0.7 or (state == "green" and 0.5 or 0.2))
+        end
+        b:Show()
+    end
+end
+
 function AW.Render()
     if not f:IsShown() then return end
     RenderList()
@@ -2068,6 +2445,7 @@ function AW.Render()
         elseif view.tab == "prof" then cols, data, note, opts = ViewProfessions(rec)
         elseif view.tab == "mail" then cols, data, note, opts = ViewMail(rec)
         elseif view.tab == "ah" then cols, data, note, opts = ViewAuctions(rec)
+        elseif view.tab == "talents" then cols, data, note, opts = { { id = "k", title = "", w = 10 } }, {}, "", nil
         else cols, data, note, opts = ViewOverview(rec) end
     else
         view.mode = "all"
@@ -2075,9 +2453,20 @@ function AW.Render()
     end
     status:SetText(note or "")
     LayoutRight()
+    -- the talent tab is drawn, not a table
+    local treeTab = view.mode == "char" and Rec() and view.query == "" and view.tab == "talents"
+    tbl.frame:SetShown(not treeTab)
+    tree:SetShown(treeTab and true or false)
+    if treeTab then
+        tree:ClearAllPoints()
+        tree:SetPoint("TOPLEFT", tbl.frame, "TOPLEFT", 0, 0)
+        tree:SetPoint("BOTTOMRIGHT", tbl.frame, "BOTTOMRIGHT", 0, 0)
+        DrawTree(Rec())
+        return
+    end
     local o = opts or {}
     local key = view.mode .. (view.key or "") .. view.tab .. (view.prof or "") .. view.inv .. (view.query ~= "" and "q" or "")
-        .. view.itemFilter .. tostring(view.onlyCraftable) .. view.allView
+        .. view.itemFilter .. tostring(view.onlyCraftable) .. view.allView .. (view.respecFilter or "")
     if AW.lastKey ~= key then AW.lastKey = key; o.resetSort = true end
     tbl:Set(cols, data, o)
 end
