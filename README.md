@@ -21,6 +21,12 @@ interface.
   recipes and crafting profit, a shopping list, your own auctions, and pages for buying and selling. Prices come
   from your own scans (or Auctionator), with 7-day price, supply and demand trends. Reference data of one realm
   is loaded at the first start so that there is something to look at before your first scan.
+- **Recipes window** (`/fcrecipes`): all profession recipes of the game: a start page, a search over every recipe
+  (by name or material), the skill steps (orange, yellow, green, grey), what teaches each recipe, and a panel
+  with the materials, what your characters have of them, the cost and the profit.
+- **Bags manager** (`/fcbags`): shows what is worth selling to a vendor, mailing to another character, storing in
+  the bank or putting on the auction house, with rules per item or per kind of item (for this character or for all),
+  and sells junk at a vendor by itself.
 - **Tooltips**: items, creatures and gathering nodes get grouped, individually switchable lines (prices, trend,
   loot you got, where it drops, disenchanting, crafting, which characters own it, ...). The settings show a live
   preview.
@@ -56,7 +62,9 @@ interface.
 | `/fcbar` | Quick bar (shown at the first start) |
 | `/fcmap` | Map window |
 | `/fcaccount` or `/fcalts` | Account window |
-| `/fcah` | Auction house window |
+| `/fcah` | Auction house window |
+| `/fcbags` | Bags manager |
+| `/fcrecipes` | Recipes window |
 | `/fcsettings` | Settings |
 | `/fcmini` | Mini map |
 
