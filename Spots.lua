@@ -554,12 +554,12 @@ function Spots.RefreshMinimap()
             local pin = mmPins[n]
             if not pin then pin = NewMinimapPin(); mmPins[n] = pin end
             if d.icon then
-                pin:SetLook("ring", 10)
+                pin:SetLook("ring", 10 * ns.MapSize())
                 pin.pic:SetTexture(d.icon)
                 pin.pic:Show()
                 pin.fill:Hide()
             else
-                pin:SetLook("plain", 8)
+                pin:SetLook("plain", 8 * ns.MapSize())
                 pin.pic:Hide()
                 pin.fill:Show()
                 pin.fill:SetColorTexture(d.color[1], d.color[2], d.color[3], 1)

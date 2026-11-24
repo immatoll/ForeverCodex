@@ -417,6 +417,26 @@ end
 function ns.MapOpacityTip(button)
     button:SetTip(L["Marker opacity"], L["Opacity: %d%%"]:format(ns.MapOpacity() * 100 + 0.5) .. " - " .. L["Click to change"])
 end
+-- how large the markers are (the picture, not the heat), on every map and the minimap: one switch for all
+local SIZE_LEVELS = { 0.5, 1, 1.5 }
+function ns.MapSize()
+    local s = ns.db and ns.db.settings.markerSize
+    return type(s) == "number" and s > 0 and s or 1
+end
+function ns.MapNextSize()
+    local cur, idx = ns.MapSize(), 2
+    for i, v in ipairs(SIZE_LEVELS) do
+        if math.abs(v - cur) < math.abs(SIZE_LEVELS[idx] - cur) then idx = i end
+    end
+    ns.db.settings.markerSize = SIZE_LEVELS[idx % #SIZE_LEVELS + 1]
+    ns.mapVersion = ns.mapVersion + 1
+end
+function ns.MapSizeTip(button)
+    button:SetTip(L["Marker size"], L["Size: %d%%"]:format(ns.MapSize() * 100 + 0.5) .. " - " .. L["Click to change"])
+end
+-- the game's own world map shows the markers too (the menu there can switch that off)
+function ns.MapWorldOn() return Filter().world ~= false end
+function ns.MapSetWorld(on) Filter().world = on and true or false; Touch() end
 function ns.MapMinimapOn() return Filter().minimap ~= false end
 function ns.MapSetMinimap(on) Filter().minimap = on and true or false; Touch() end
 
@@ -857,7 +877,7 @@ function W.NewMapView(parent)
             for _, d in ipairs(c.items) do if not d.noCount then swords = false end end
             if swords then
                 -- found creatures: the grouped swords show no number
-                b:SetLook("ring", ICON_D)
+                b:SetLook("ring", ICON_D * ns.MapSize())
                 b.pic:SetTexture(c.items[1].icon)
                 b.pic:Show()
                 b.fill:Hide()
@@ -881,7 +901,7 @@ function W.NewMapView(parent)
                     if count[p.key] ~= count[q.key] then return count[p.key] > count[q.key] end
                     return p.key < q.key
                 end)
-                b:SetLook("ring", ICON_D)
+                b:SetLook("ring", ICON_D * ns.MapSize())
                 b.num:SetText("")
                 if #order == 1 then
                     b:SetParts(nil)
@@ -909,12 +929,12 @@ function W.NewMapView(parent)
                 b:SetParts(nil)
                 b:SetBadge(nil)
                 if d.icon then
-                    b:SetLook("ring", ICON_D)
+                    b:SetLook("ring", ICON_D * ns.MapSize())
                     b.pic:SetTexture(d.icon)
                     b.pic:Show()
                     b.fill:Hide()
                 else
-                    b:SetLook("plain", DOT)
+                    b:SetLook("plain", DOT * ns.MapSize())
                     b.pic:Hide()
                     b.fill:Show()
                     b.fill:SetColorTexture(d.color[1], d.color[2], d.color[3], 1)

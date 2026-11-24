@@ -33,6 +33,7 @@ PageHistory.lua
 PageStats.lua
 Routes.lua
 Spots.lua
+WorldMapMarkers.lua
 MapMain.lua
 AccountWindow.lua
 MapWindow.lua

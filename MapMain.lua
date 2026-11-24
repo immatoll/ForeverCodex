@@ -190,10 +190,12 @@ local opBtn = W.NewIconButton(f, "Interface\\Icons\\Spell_Nature_Invisibilty", B
 opBtn:SetPoint("RIGHT", resetBtn, "LEFT", -4, 0)
 local dimBtn = W.NewIconButton(f, "Interface\\Icons\\INV_Misc_Eye_01", BAR_BTN)
 dimBtn:SetPoint("RIGHT", opBtn, "LEFT", -4, 0)
+local sizeBtn = W.NewIconButton(f, "Interface\\Icons\\INV_Misc_Gem_Variety_01", BAR_BTN)
+sizeBtn:SetPoint("RIGHT", dimBtn, "LEFT", -4, 0)
 local followBtn = W.NewIconButton(f, "Interface\\Icons\\Ability_Tracking", BAR_BTN)
-followBtn:SetPoint("RIGHT", dimBtn, "LEFT", -4, 0)
+followBtn:SetPoint("RIGHT", sizeBtn, "LEFT", -4, 0)
 followBtn:SetTip(L["Follow me"], L["Keeps you in the middle of the map while you are zoomed in."])
-local RIGHT_W = 84 + 4 * (BAR_BTN + 4) + 6
+local RIGHT_W = 84 + 5 *(BAR_BTN + 4) + 6
 
 -- the search: what it finds is shown on the map (here and on the minimap), nothing else
 local search = CreateFrame("EditBox", nil, f, W.TEMPLATE)
@@ -569,6 +571,7 @@ end
 resetBtn:SetScript("OnClick", function() view:ResetZoom() end)
 opBtn:SetScript("OnClick", function() ns.MapNextOpacity(); dirty = true end)
 dimBtn:SetScript("OnClick", function() ns.MapNextDim(); dirty = true end)
+sizeBtn:SetScript("OnClick", function() ns.MapNextSize(); dirty = true end)
 followBtn:SetScript("OnClick", function()
     local on = not ns.MapFollowOn()
     ns.MapSetFollow(on)
@@ -792,6 +795,7 @@ function Main.Render()
     miniBtn:SetActive(ns.MapWindow and ns.MapWindow.IsShown())
     ns.MapDimTip(dimBtn)
     ns.MapOpacityTip(opBtn)
+    ns.MapSizeTip(sizeBtn)
     prev:SetShown(#ids > 1)
     nextBtn:SetShown(#ids > 1)
     zoneBtn:ClearAllPoints()
