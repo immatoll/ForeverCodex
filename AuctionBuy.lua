@@ -230,7 +230,8 @@ function B.Build(parent)
             for i = 1, math.min(m, 40) do
                 local info = AHc.GetItemSearchResultInfo(self.itemKey, i)
                 if info and info.buyoutAmount and info.buyoutAmount > 0 and info.quantity and info.quantity > 0 then
-                    all[#all + 1] = { price = math.floor(info.buyoutAmount / info.quantity), qty = info.quantity, total = info.buyoutAmount,
+                    -- (one auction is one item: the game's "quantity" of such a result is not the stack, so it is not used)
+                    all[#all + 1] = { price = info.buyoutAmount, qty = 1, total = info.buyoutAmount,
                         auction = info.auctionID, mine = info.owner == me or info.containsOwnerItem }
                 end
             end
@@ -313,7 +314,12 @@ function B.Build(parent)
         local total, got = self:Cost(amount)
         if got == 0 or total > (GetMoney and GetMoney() or 0) then return end
         if self.state == "confirm" then
-            -- the second click
+            -- the second click: only for the amount that was asked the price for (the box was changed since: ask again)
+            if self.commodity and self.quoteAmount and self.quoteAmount ~= got then
+                self:Cancel()
+                self.note:SetText(L["The amount changed: click Buy again."])
+                return
+            end
             if self.commodity then
                 if C_AuctionHouse.ConfirmCommoditiesPurchase then
                     local ok, err = pcall(C_AuctionHouse.ConfirmCommoditiesPurchase, self.id, self.quoteAmount or amount)
@@ -347,7 +353,7 @@ function B.Build(parent)
             local first = self.all[1]
             if not first then return end
             self.state, self.quote = "confirm", first.total
-            self.buy.text:SetText((L["Confirm: %s"]):format(Money(first.total)))
+            self.buy.text:SetText((L["Confirm %d×: %s"]):format(first.qty or 1, Money(first.total)))
             self:Sums()
         end
     end
@@ -365,7 +371,7 @@ function B.Build(parent)
             -- the price of the purchase (each, total): the button now buys at it
             if self.state == "asking" then
                 self.state, self.quote = "confirm", b or (a and a * (self.quoteAmount or 1))
-                self.buy.text:SetText((L["Confirm: %s"]):format(Money(self.quote or 0)))
+                self.buy.text:SetText((L["Confirm %d×: %s"]):format(self.quoteAmount or 1, Money(self.quote or 0)))
                 self:Sums()
             end
         elseif event == "COMMODITY_PRICE_UNAVAILABLE" then

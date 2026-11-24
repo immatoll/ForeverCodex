@@ -548,6 +548,15 @@ if ns.AuctionCraft then
     }
 end
 
+-- "Planned": in the sell view only what the bags manager has set aside for the auction house (rule "auction", or proposed by its list).
+-- Kept in the settings; it only counts while your own character is chosen (the manager looks at the bags of the character you play).
+local plannedSet
+local function PlannedOn()
+    if not (ns.db and ns.db.settings.ahPlanned ~= false and ns.Manager and ns.Manager.AuctionSet) then return false end
+    return state.chars and state.chars[ns.Acc.MyKey()] and true or false
+end
+T.PlannedOn = PlannedOn
+
 -- One item: counted for the category menu, then filtered and, if it passes, added to `out`.
 local function Consider(id, own, out, cnt, ccount)
     if state.view == "recipes" then return ConsiderRecipe(id, own, out) end
@@ -658,14 +667,6 @@ local function ResultsValid(view)
     return r and r.view == view and r.sig == Signature() and r.stamp == ns.AH.Time() and r.full and GetTime() - r.at < 30 or false
 end
 
--- "Planned": in the sell view only what the bags manager has set aside for the auction house (rule "auction", or proposed by its list).
--- Kept in the settings; it only counts while your own character is chosen (the manager looks at the bags of the character you play).
-local plannedSet
-local function PlannedOn()
-    if not (ns.db and ns.db.settings.ahPlanned ~= false and ns.Manager and ns.Manager.AuctionSet) then return false end
-    return state.chars and state.chars[ns.Acc.MyKey()] and true or false
-end
-T.PlannedOn = PlannedOn
 
 local function StartCollect()
     if T.IsPage(state.view) then job = nil; return end -- (a page has no list)
@@ -1103,7 +1104,7 @@ function T.Draw()
     end
     for i = visible + 1, #rows do rows[i]:Hide() end
     empty:SetShown(n == 0 and not T.IsPage(state.view))
-    empty:SetText(job and L["Loading…"] or state.view == "recipes" and L["No recipes to show: open a profession window with each of your characters to have its recipes read."]
+    empty:SetText(job and L["Loading…"] or (state.view == "profit" and plannedSet) and L["Nothing is planned for the auction house. Switch \"Planned\" off to see everything."] or state.view == "recipes" and L["No recipes to show: open a profession window with each of your characters to have its recipes read."]
         or state.view == "profit" and L["Nothing to compare: nothing tradable in your bags or bank matches, or the auction house has not been scanned yet."]
         or (state.view == "all" and L["Nothing matches. Scan the auction house to fill this list."])
         or L["No price history yet. Scan the auction house here, and again on other days: from the second day on the trends appear."])
@@ -1435,8 +1436,17 @@ local function Build(host)
     end)
     plannedBtn:HookScript("OnLeave", function() GameTooltip:Hide() end)
     T.plannedBtn = plannedBtn
+    -- a red warning triangle while the switch is on: the list is cut down to what is planned
+    local warn = plannedBtn:CreateTexture(nil, "OVERLAY")
+    warn:SetSize(14, 14)
+    warn:SetPoint("LEFT", 6, 0)
+    warn:SetTexture("Interface\\DialogFrame\\UI-Dialog-Icon-AlertNew")
+    warn:Hide()
+    plannedBtn.text:ClearAllPoints()
+    plannedBtn.text:SetPoint("CENTER", 8, 0)
     function T.SyncPlanned()
         local mine = state.chars and state.chars[ns.Acc.MyKey()] and true or false
+        warn:SetShown(PlannedOn())
         plannedBtn:SetSelected(PlannedOn())
         plannedBtn:SetAlpha(mine and 1 or 0.45)
     end
