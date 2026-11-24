@@ -86,7 +86,7 @@ local CATS = {
 }
 M.CATS = CATS
 local PROF_NAMES = {
-    tailoring = { "tailoring", "schneiderei" }, leatherworking = { "leatherworking", "lederverarbeitung" }, alchemy = { "alchemy", "alchemie" },
+    tailoring = { "tailoring", "schneiderei" }, leatherworking = { "leatherworking", "lederverarbeitung" }, alchemy = { "alchemy", "alchimie", "alchemie" },
     blacksmithing = { "blacksmithing", "schmiedekunst" }, jewelcrafting = { "jewelcrafting", "juwelenschleifen" },
     enchanting = { "enchanting", "verzauberkunst" }, engineering = { "engineering", "ingenieurskunst" },
 }
@@ -165,7 +165,7 @@ function M.Suggest(cat)
         if rec.key ~= me and rec.name then
             for _, sk in ipairs(rec.skills or {}) do
                 local n = tostring(sk.name or ""):lower()
-                if (n == names[1] or n == names[2]) and (not bestRank or (sk.rank or 0) > bestRank) then best, bestRank = FullName(rec), sk.rank or 0 end
+                if (n == names[1] or n == names[2] or n == names[3]) and (not bestRank or (sk.rank or 0) > bestRank) then best, bestRank = FullName(rec), sk.rank or 0 end
             end
         end
     end

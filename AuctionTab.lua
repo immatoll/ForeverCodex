@@ -1266,7 +1266,9 @@ function T.PlacePanel(host)
 end
 
 local function Build(host)
-    ns.db.settings.ahViews = ns.db.settings.ahViews or {}
+    -- The selections (characters, places, filters) start fresh in every session: after a login as another
+    -- character the previous character must not stay selected.
+    ns.db.settings.ahViews = {}
     viewData = ns.db.settings.ahViews
     for v in pairs(VIEWS) do
         local d = viewData[v] or ViewDefaults(v)

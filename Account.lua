@@ -132,7 +132,7 @@ end
 
 -- a picture for a profession (by its English or German name)
 local PROF_ICONS = {
-    alchemy = "Trade_Alchemy", alchemie = "Trade_Alchemy",
+    alchemy = "Trade_Alchemy", alchemie = "Trade_Alchemy", alchimie = "Trade_Alchemy",
     blacksmithing = "Trade_BlackSmithing", schmiedekunst = "Trade_BlackSmithing",
     enchanting = "Trade_Engraving", verzauberkunst = "Trade_Engraving",
     engineering = "Trade_Engineering", ingenieurskunst = "Trade_Engineering",
@@ -181,12 +181,25 @@ end
 -- A surname (or title) is whatever the client's full name adds to the plain name: "Aldric the Bold" gives "the Bold".
 -- The raw values are shown by /fc accdebug, in case this client puts it elsewhere.
 local function SurnameOf()
-    local name, full = UnitName("player"), UnitPVPName and UnitPVPName("player")
-    if not (name and full) or full == name then return nil end
-    local s, e = full:find(name, 1, true)
-    if not s then return nil end
-    local after = full:sub(e + 1):gsub("^[%s,]+", ""):gsub("%s+$", "")
-    return after ~= "" and after or nil
+    -- on this client UnitName returns the surname as its second value (where other clients put the realm)
+    local name, second = UnitName("player")
+    if not name then return nil end
+    if type(second) == "string" and second ~= "" and second ~= GetRealmName() then return second end
+    -- several places where the client may keep the longer name: the title name, the unit name, the player frame's text
+    local sources = { UnitPVPName and UnitPVPName("player"), GetUnitName and GetUnitName("player", false),
+        PlayerName and PlayerName.GetText and PlayerName:GetText(),
+        PlayerFrame and PlayerFrame.name and PlayerFrame.name.GetText and PlayerFrame.name:GetText() }
+    for i = 1, 4 do
+        local full = sources[i]
+        if type(full) == "string" and full ~= name then
+            local s, e = full:find(name, 1, true)
+            if s then
+                local after = full:sub(e + 1):gsub("^[%s,]+", ""):gsub("%s+$", "")
+                if after ~= "" then return after end
+            end
+        end
+    end
+    return nil
 end
 
 -- the name as shown in the account window: with the surname if the setting is on
@@ -201,7 +214,9 @@ end
 local function ScanInfo()
     local rec = Acc.Me()
     if not rec then return end
-    rec.surname = SurnameOf()
+    -- the client often does not know the surname yet at login: a found one is kept, an empty result never erases it
+    local surname = SurnameOf()
+    if surname then rec.surname = surname end
     local className, classFile = UnitClass("player")
     local raceName, raceFile = UnitRace("player")
     local level = UnitLevel("player")
@@ -353,10 +368,22 @@ end
 local function ScanMail()
     local rec = Acc.Me()
     if not rec or not GetInboxNumItems then return end
-    local list = {}
+    local list, sales = {}, {}
     local n = GetInboxNumItems() or 0
+    local soldPattern = Acc.SoldSubject()
     for i = 1, n do
         local _, _, sender, subject, money, cod, daysLeft, itemCount = GetInboxHeaderInfo(i)
+        -- a letter "Auction successful: <item>" carries the money of a sale (with the invoice, as far as the game gives it)
+        local soldName = soldPattern and type(subject) == "string" and subject:match(soldPattern)
+        if soldName then
+            local inv = {}
+            if GetInboxInvoiceInfo then
+                local packed = { pcall(GetInboxInvoiceInfo, i) }
+                if packed[1] then table.remove(packed, 1); inv = packed end
+            end
+            sales[#sales + 1] = { name = soldName, money = money or 0, expires = time() + math.floor((daysLeft or 0) * 86400),
+                invoiceType = inv[1], itemName = inv[2], buyer = inv[3], bid = inv[4], buyout = inv[5], deposit = inv[6], fee = inv[7] }
+        end
         local atts = {}
         for j = 1, (ATTACHMENTS_MAX_RECEIVE or 16) do
             local link = GetInboxItemLink and GetInboxItemLink(i, j)
@@ -372,6 +399,7 @@ local function ScanMail()
     end
     rec.mail = { list = list }
     Stamp(rec, "mail")
+    if #sales > 0 then Acc.NoteSaleMails(rec, sales) end
 end
 
 -- professions and the recipes of the open profession window -----------------------------------
@@ -502,6 +530,19 @@ local function PushHistory(entry)
     while #h > HISTORY_MAX do table.remove(h, 1) end
 end
 
+-- A sale that the auction house lists as sold but has not paid out yet (the money comes by letter later): noted at once, as sold, once per
+-- auction (ns.db.ahSeenSold). The letter that comes later completes the entry (see Acc.NoteSaleMails).
+local function NoteSoldPending(rec, a)
+    if not (ns.db and a.auctionID) then return end
+    local seen = ns.db.ahSeenSold
+    if not seen then seen = {}; ns.db.ahSeenSold = seen end
+    local now = time()
+    for k, at in pairs(seen) do if now - at > 45 * 86400 then seen[k] = nil end end
+    if seen[a.auctionID] then return end
+    seen[a.auctionID] = now
+    PushHistory({ id = a.id, count = a.count, buyout = a.buyout, char = rec.key, state = "sold", at = now, pending = true })
+end
+
 local function NoteEnded(rec, old, list)
     local now = time()
     local present, used = {}, {}
@@ -515,11 +556,28 @@ local function NoteEnded(rec, old, list)
                 if not used[j] and not a.auctionID and a.id == o.id and a.count == o.count and a.buyout == o.buyout then used[j] = true; still = true break end
             end
         end
+        if not still and o.auctionID and ns.db and ns.db.ahSeenSold and ns.db.ahSeenSold[o.auctionID] then
+            still = true -- (noted as sold already, while it waited for its payment)
+        end
         if not still then
             local state = "sold"
             if o.auctionID and cancelledIds[o.auctionID] then state = "cancelled"
             elseif o.left and o.left <= now + 90 then state = "expired" end
-            PushHistory({ id = o.id, count = o.count, buyout = o.buyout, char = rec.key, state = state, at = now })
+            -- (a sale that a letter has told already: the letter gets the item, nothing is added)
+            local matched
+            if state == "sold" and ns.db and ns.db.ahHistory then
+                local name = (Acc.ItemName(o.id) or ""):lower()
+                for _, e in ipairs(ns.db.ahHistory) do
+                    if e.mail and not e.matched and not e.id and e.char == rec.key and name ~= "" and (e.name or ""):lower() == name then
+                        e.id, e.count, e.matched = o.id, o.count, true
+                        matched = true
+                        break
+                    end
+                end
+            end
+            if not matched then
+                PushHistory({ id = o.id, count = o.count, buyout = o.buyout, char = rec.key, state = state, at = now })
+            end
         end
     end
 end
@@ -532,22 +590,47 @@ local function ScanAuctions()
     if C_AuctionHouse and C_AuctionHouse.GetNumOwnedAuctions and C_AuctionHouse.GetOwnedAuctionInfo then
         local soldStatus = Enum and Enum.AuctionStatus and Enum.AuctionStatus.Sold
         if C_AuctionHouse.HasFullOwnedAuctionResults then complete = C_AuctionHouse.HasFullOwnedAuctionResults() and true or false end
+        -- (for stackable goods the game gives the price of ONE piece as the buyout of an own auction; for single items the price of the auction.
+        -- The lists here keep the price of the whole auction.)
+        local function Total(info, id)
+            local qty = info.quantity or 1
+            local commodity
+            if C_AuctionHouse.GetItemKeyInfo and info.itemKey then
+                local ok, ki = pcall(C_AuctionHouse.GetItemKeyInfo, info.itemKey)
+                if ok and type(ki) == "table" then commodity = ki.isCommodity end
+            end
+            if commodity == nil then
+                local stack = select(8, (GetItemInfo or C_Item.GetItemInfo)(id))
+                commodity = (tonumber(stack) or 1) > 1
+            end
+            local price = info.buyoutAmount or 0
+            return commodity and price * qty or price
+        end
         for i = 1, C_AuctionHouse.GetNumOwnedAuctions() do
             local info = C_AuctionHouse.GetOwnedAuctionInfo(i)
             local id = info and info.itemKey and info.itemKey.itemID
-            -- (a sold auction is not on offer any more: it falls out of the list and is noted as sold)
+            -- (a sold auction is not on offer any more: it is noted as sold, even while its payment is still to come)
+            if id and soldStatus and info.status == soldStatus then
+                NoteSoldPending(rec, { id = id, count = info.quantity or 1, buyout = Total(info, id), auctionID = info.auctionID })
+            end
             if id and not (soldStatus and info.status == soldStatus) then
-                list[#list + 1] = { id = id, count = info.quantity or 1, buyout = info.buyoutAmount or 0, auctionID = info.auctionID,
+                list[#list + 1] = { id = id, count = info.quantity or 1, buyout = Total(info, id), auctionID = info.auctionID,
                     left = info.timeLeftSeconds and (time() + info.timeLeftSeconds) or nil }
             end
         end
     elseif GetNumAuctionItems then
         local n = GetNumAuctionItems("owner") or 0
+        local soldN = {}
         for i = 1, n do
-            local _, _, count, _, _, _, _, _, _, buyout, _, _, _, _, _, _, id = GetAuctionItemInfo("owner", i)
+            local _, _, count, _, _, _, _, _, _, buyout, _, _, _, _, _, saleStatus, id = GetAuctionItemInfo("owner", i)
             local link = GetAuctionItemLink and GetAuctionItemLink("owner", i)
             id = id or IdOf(link)
-            if id then
+            if id and saleStatus == 1 then
+                -- sold, payment still to come (no auction number in this list: the item and the price tell it apart)
+                local base = ("c%d_%d_%d"):format(id, count or 1, buyout or 0)
+                soldN[base] = (soldN[base] or 0) + 1
+                NoteSoldPending(rec, { id = id, count = count or 1, buyout = buyout or 0, auctionID = base .. "_" .. soldN[base] })
+            elseif id then
                 Link(id, link)
                 local left = GetAuctionItemTimeLeft and GetAuctionItemTimeLeft("owner", i)
                 list[#list + 1] = { id = id, count = count or 1, buyout = buyout or 0, left4 = left, seen = time() }
@@ -634,6 +717,55 @@ local function ItemName(id)
     return get and (get(id)) or nil
 end
 Acc.ItemName = ItemName
+
+-- The sales of the auction house are told by letters ("Auction successful: <item>") with the money in them. They are the sure way to know what
+-- was sold: the list of auctions only shows that something has gone, and only when the auction house was opened. Each letter is noted once
+-- (ns.db.ahSeenMail); one that the list had noted as sold already is completed (money, buyer) instead of added.
+function Acc.SoldSubject()
+    local fmt = _G.AUCTION_SOLD_MAIL_SUBJECT
+    if type(fmt) ~= "string" then return nil end
+    return "^" .. fmt:gsub("%p", "%%%0"):gsub("%%%%s", "(.+)") .. "$"
+end
+
+function Acc.NoteSaleMails(rec, sales)
+    if not ns.db then return end
+    local seen = ns.db.ahSeenMail
+    if not seen then seen = {}; ns.db.ahSeenMail = seen end
+    local now = time()
+    for k, at in pairs(seen) do if now - at > 45 * 86400 then seen[k] = nil end end
+    local h = ns.db.ahHistory
+    if not h then h = {}; ns.db.ahHistory = h end
+    for _, s in ipairs(sales) do
+        local saleAt = s.expires - 30 * 86400 -- (letters of the auction house stay 30 days)
+        if saleAt > now then saleAt = now end
+        local hour = math.floor(saleAt / 3600)
+        local key = rec.key .. "|" .. s.name .. "|" .. s.money .. "|"
+        local known = seen[key .. hour] or seen[key .. (hour - 1)] or seen[key .. (hour + 1)]
+        if not known then
+            seen[key .. hour] = now
+            local gross = (s.invoiceType == "seller" and tonumber(s.buyout) and s.buyout > 0 and s.buyout) or (tonumber(s.bid) and s.bid > 0 and s.bid) or nil
+            local lname = s.name:lower()
+            local done
+            -- one that the list of auctions has noted as sold already: complete it
+            for i = #h, math.max(1, #h - 200), -1 do
+                local e = h[i]
+                if e.state == "sold" and not e.mail and e.char == rec.key and e.id and (ItemName(e.id) or ""):lower() == lname
+                    and math.abs((e.at or 0) - saleAt) < 14 * 86400 then
+                    e.mail, e.matched, e.net, e.buyer, e.pending = true, true, s.money, s.buyer, nil
+                    if gross then e.buyout = gross end
+                    done = true
+                    break
+                end
+            end
+            if not done then
+                local id
+                if GetItemInfoInstant then local ok, v = pcall(GetItemInfoInstant, s.itemName or s.name) if ok then id = v end end
+                PushHistory({ id = id, name = s.name, count = 1, buyout = gross or s.money, net = s.money, buyer = s.buyer, char = rec.key,
+                    state = "sold", at = saleAt, mail = true })
+            end
+        end
+    end
+end
 
 -- where an item is, per character: { rec, bags, bank, mail, equip, auction }
 function Acc.Owners(id)
@@ -881,7 +1013,8 @@ end)
 
 local events = CreateFrame("Frame")
 local HANDLE = {
-    PLAYER_LOGIN = function() Queue("info"); Queue("equip"); Queue("bags"); Queue("skills"); C_Timer.After(6, RequestPlayed); C_Timer.After(8, function() Queue("info") end) end,
+    PLAYER_LOGIN = function() Queue("info"); Queue("equip"); Queue("bags"); Queue("skills"); C_Timer.After(6, RequestPlayed); C_Timer.After(8, function() Queue("info") end)
+        C_Timer.After(20, function() Queue("info") end); C_Timer.After(45, function() Queue("info") end) end,
     PLAYER_ENTERING_WORLD = function() Queue("info"); Queue("skills"); C_Timer.After(5, function() Queue("talents") end) end,
     PLAYER_TALENT_UPDATE = function() Queue("talentsChanged") end,
     CHARACTER_POINTS_CHANGED = function() Queue("talentsChanged") end,
@@ -945,10 +1078,13 @@ end)
 
 -- /fc accdebug: what this client offers and what the scans did
 function Acc.Debug()
-    local function Say(t) print("|cffffd100ForeverCompanion account:|r " .. t) end
+    local out = {}
+    local function Say(t) out[#out + 1] = t end
     local function Raw(...) local t = {} for i = 1, select("#", ...) do t[#t + 1] = tostring((select(i, ...))) end return table.concat(t, " | ") end
     Say("names: UnitName=" .. Raw(UnitName("player")) .. "; UnitFullName=" .. Raw(UnitFullName and UnitFullName("player"))
-        .. "; UnitPVPName=" .. Raw(UnitPVPName and UnitPVPName("player")) .. "; surname=" .. tostring(SurnameOf()))
+        .. "; UnitPVPName=" .. Raw(UnitPVPName and UnitPVPName("player")) .. "; GetUnitName=" .. Raw(GetUnitName and GetUnitName("player", false))
+        .. "; PlayerName=" .. Raw(PlayerName and PlayerName.GetText and PlayerName:GetText())
+        .. "; surname=" .. tostring(SurnameOf()))
     local have = {}
     for _, n in ipairs({ "GetNumTradeSkills", "GetTradeSkillLine", "GetNumCrafts", "GetNumSkillLines", "GetProfessions",
         "GetInboxNumItems", "GetNumAuctionItems", "GetAverageItemLevel", "RequestTimePlayed" }) do
@@ -969,4 +1105,6 @@ function Acc.Debug()
     local n = 0
     if rec then for prof, r in pairs(rec.recipes) do n = n + 1; Say(prof .. ": " .. #r.list .. " recipes") end end
     if n == 0 then Say("no recipes stored for this character") end
+    if rec then Say("stored: name=" .. tostring(rec.name) .. "; surname=" .. tostring(rec.surname)) end
+    ns.W.Console(table.concat(out, "\n"), "Companion account debug (copy and send)")
 end

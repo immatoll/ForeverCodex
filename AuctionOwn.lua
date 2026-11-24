@@ -172,7 +172,7 @@ function O.Build(parent)
             local h = ns.db and ns.db.ahHistory or {}
             for i = #h, 1, -1 do
                 local e = h[i]
-                out[#out + 1] = { id = e.id, count = e.count or 1, buyout = e.buyout or 0, rec = keyed[e.char], char = e.char, state = e.state, at = e.at }
+                out[#out + 1] = { id = e.id, name = e.name, count = e.count or 1, buyout = e.buyout or 0, rec = keyed[e.char], char = e.char, state = e.state, at = e.at, pending = e.pending }
             end
         end
         return out
@@ -193,11 +193,13 @@ function O.Build(parent)
         for i, r in ipairs(self.rows) do
             local e = list[self.offset + i]
             if e and i <= fit then
-                local name, quality, icon = W.ItemData(e.id)
+                local name, quality, icon
+                if e.id then name, quality, icon = W.ItemData(e.id) end
+                name = name or e.name
                 local col = ITEM_QUALITY_COLORS and ITEM_QUALITY_COLORS[quality or 1]
                 r.id = e.id
                 r.pic:SetTexture(icon or "Interface\\Icons\\INV_Misc_QuestionMark")
-                r.name:SetText((col and col.hex or "|cffffffff") .. (name or ("item:" .. e.id)) .. "|r" .. (e.count > 1 and (" |cff8a806e×" .. e.count .. "|r") or ""))
+                r.name:SetText((col and col.hex or "|cffffffff") .. (name or ("item:" .. tostring(e.id))) .. "|r" .. (e.count > 1 and (" |cff8a806e×" .. e.count .. "|r") or ""))
                 r.cell.char:SetText(e.rec and ClassName(e.rec) or (e.char or ""))
                 r.cell.total:SetText(e.buyout > 0 and Money(e.buyout) or "|cff8a806e–|r")
                 r.cell.each:SetText(e.buyout > 0 and Money(math.floor(e.buyout / math.max(1, e.count))) or "|cff8a806e–|r")
@@ -205,7 +207,8 @@ function O.Build(parent)
                     r.cell.status:SetText(e.left and TimeLeft(e.left) or "|cff8a806e–|r")
                 else
                     local st = STATES[e.state] or STATES.cancelled
-                    r.cell.status:SetText(st[1] .. L[st[2]] .. "|r  |cff8a806e" .. date("%d.%m. %H:%M", e.at or 0) .. "|r")
+                    -- (sold, but the money is still to be collected by letter)
+                    r.cell.status:SetText(st[1] .. L[st[2]] .. "|r" .. (e.pending and ("  |cffffa040" .. L["to be paid"] .. "|r") or "") .. "  |cff8a806e" .. date("%d.%m. %H:%M", e.at or 0) .. "|r")
                 end
                 r:Show()
             else

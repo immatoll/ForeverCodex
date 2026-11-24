@@ -1232,9 +1232,14 @@ local function RecipeIcon(prof)
     return ns.Acc.ProfIcon(prof) or PLACEHOLDER
 end
 
+-- the colour of a skill by the tier it is in: 0-74 grey, 75-149 white, 150-224 yellow, 225-299 orange, 300 green
 local function SkillColor(s)
-    local pct = s.max > 0 and s.rank / s.max or 0
-    return pct >= 1 and JADE or (pct > 0.7 and "|cffffff66" or "|cffffffff")
+    local r = s.rank or 0
+    if r >= 300 then return JADE end
+    if r >= 225 then return "|cffff9a33" end
+    if r >= 150 then return "|cffffff66" end
+    if r >= 75 then return "|cffffffff" end
+    return "|cff9d9d9d"
 end
 
 -- a profession's skill: with its picture the name is not repeated; without one the name stays
